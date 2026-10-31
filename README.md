@@ -19,6 +19,8 @@ Preview profile ideas, tune the details, and shape your showcases — all before
 
 ---
 
+> **This is a modified fork.** It was changed by [lannahirave](https://github.com/lannahirave) in October 2026 to run on Cloudflare Workers at [preview.lannahirave.com](https://preview.lannahirave.com) and to receive converted GIFs from [Steam Artwork Studio](https://artworkstudio.lannahirave.com). The original project is [dumbapplee/steamcanvas](https://github.com/dumbapplee/steamcanvas). What changed and why: [docs/ARTWORK_STUDIO_INTEGRATION.md](docs/ARTWORK_STUDIO_INTEGRATION.md).
+
 SteamCanvas is a local-first editor for experimenting with **public Steam profiles**. Load a profile, try a new look, arrange its showcases, and export the artwork or a portable HTML preview when you are happy with it.
 
 > **A safe space to experiment:** SteamCanvas previews changes in your browser. It does not sign in to Steam or edit your Steam account.
@@ -56,26 +58,28 @@ SteamCanvas autosaves the current preview as a draft in your browser. Return to 
 ### Start the development app
 
 ```sh
-git clone https://github.com/dumbapplee/steamcanvas.git
+git clone https://github.com/lannahirave/steamcanvas.git
 cd steamcanvas
 npm install
 npm run dev
 ```
 
-Open **[http://localhost:5173](http://localhost:5173)**. The development command starts both the Vite frontend and the local API server; Vite forwards `/api` requests to the server on port `8787`.
+Open **[http://localhost:5180](http://localhost:5180)**. The development command starts the Vite frontend and the Cloudflare Worker API (`wrangler dev`); Vite forwards `/api` requests to the Worker on port `8790`. Copy `.dev.vars.example` to `.dev.vars` first.
 
-### Build and run the production app
+`npm run dev:node` runs the original Express server instead, if you want to compare the two.
+
+### Build and deploy
 
 ```sh
 npm run build
-npm run start
+npm run deploy
 ```
 
-The build checks both TypeScript projects and creates the frontend in `dist/`. The server then serves the built app and its API at **[http://localhost:8787](http://localhost:8787)** by default.
+The build type-checks the client, the Worker, and the Express server, then creates the frontend in `dist/`. `npm run deploy` publishes the Worker and the built files with Wrangler, using `wrangler.jsonc`. `npm run start` still serves the build with the Express server at **[http://localhost:8787](http://localhost:8787)**.
 
 ### Optional catalog database
 
-SteamCanvas works without a database. Set `DATABASE_URL` for the server to enable its PostgreSQL-backed catalog indexing and global unique-profile metric; without it, Points Shop catalog searches use Steam's fallback and profile metrics are unavailable. The local development setup does not require PostgreSQL.
+The Worker has no catalog database: `/api/catalog-status` and `/api/profile-metrics` answer 503 there. With the Express server, set `DATABASE_URL` for the server to enable its PostgreSQL-backed catalog indexing and global unique-profile metric; without it, Points Shop catalog searches use Steam's fallback and profile metrics are unavailable. The local development setup does not require PostgreSQL.
 
 After a public profile loads successfully, SteamCanvas stores its SteamID64 once in PostgreSQL. The total number of distinct profiles seen by this server is available from `GET /api/profile-metrics` as `{ "uniqueProfiles": 123 }`. No profile names or submitted profile URLs are stored for this metric.
 
@@ -98,7 +102,7 @@ For details on image handling, Workshop layouts, and export behavior, see [Steam
 ## ℹ️ What to know
 
 - Only **public** Steam profiles can be loaded.
-- AdSense Auto ads load only when the viewport is at least 651px wide. Google controls ad placement, so ads are not guaranteed to appear in the header. Enable Auto ads and configure the desired formats and consent messaging for the site in AdSense.
+- This fork has no ads. The upstream AdSense script was removed.
 - SteamCanvas is a preview and export tool; it does not apply changes to your Steam account. Upload artwork and make profile changes on Steam yourself.
 - Some showcase types are preserved as Steam provided them. Artwork editing is supported for the showcase types listed above; other showcase blocks can remain unchanged while you reorder or remove them.
 - Workshop layouts are available up to the number of five-slot rows in the loaded showcase: **2 × 5** needs ten slots and **3 × 5** needs fifteen. A profile with the relevant Steam upgrade can preview up to three rows.
@@ -110,7 +114,7 @@ For details on image handling, Workshop layouts, and export behavior, see [Steam
 | Part | Technology |
 | --- | --- |
 | User interface | React 19, TypeScript, Vite |
-| Local API | Node.js, Express 5 |
+| API | Cloudflare Workers (this fork); Node.js, Express 5 (upstream server, kept) |
 | Asset processing | Canvas, `gifuct-js`, `gifenc`, JSZip |
 | Optional catalog index | PostgreSQL |
 
@@ -121,23 +125,28 @@ src/
   components/   Profile, avatar, background, theme, and showcase editors
   utils/        Shared profile and network helpers
   App.tsx       App shell, profile loading, drafts, and full export
+worker/
+  index.ts      Steam-facing API on Cloudflare Workers (this fork)
 server/
-  index.ts      Steam-facing API and optional catalog index
+  index.ts      Original Express API and optional catalog index
 docs/
   STEAM_PROFILE_ASSETS.md
+  ARTWORK_STUDIO_INTEGRATION.md
 ```
 
 ## 📜 Available commands
 
 | Command | Description |
 | --- | --- |
-| `npm run dev` | Start the Vite frontend and API server for local development |
-| `npm run build` | Type-check the client and server, then build the frontend |
-| `npm run start` | Serve the production build and API |
+| `npm run dev` | Start the Vite frontend and the Worker API for local development |
+| `npm run dev:node` | Start the Vite frontend with the original Express server |
+| `npm run build` | Type-check the client, Worker and server, then build the frontend |
+| `npm run deploy` | Build, then deploy the Worker with Wrangler |
+| `npm run start` | Serve the production build with the Express server |
 
 ## License
 
-Copyright (C) 2026 dumbapplee.
+Copyright (C) 2026 dumbapplee. Modifications copyright (C) 2026 lannahirave.
 
 SteamCanvas is licensed under the GNU Affero General Public License, version 3 only. See [LICENSE](LICENSE). Redistributed copies must retain the copyright and license notices. If you run a modified version as a network service, AGPLv3 requires you to offer its corresponding source code to users interacting with it remotely.
 

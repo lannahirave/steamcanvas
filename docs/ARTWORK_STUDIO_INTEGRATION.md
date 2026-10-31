@@ -22,6 +22,18 @@ the Studio, as a Worker (`worker/`):
   requests, so a `Map` would not survive. A per-instance map still joins identical requests that run at
   the same time.
 - Steam retries are shorter than upstream (fewer attempts, shorter backoff) to fit Worker time limits.
+- **Request headers differ from upstream.** From `wrangler dev` (October 2026), Steam answered the same
+  request differently than it did for the Node server:
+  - profile pages: `429` for upstream's short `User-Agent` without `Accept-Language`, `200` with a
+    complete browser-like set (full Chrome `User-Agent`, `Accept`, `Accept-Language`);
+  - `/sharedfiles/filedetails/` (full-size screenshots): `429` for any browser `User-Agent`, `200`
+    with no `User-Agent`;
+  - Community Market search: `429` for any browser `User-Agent`, `200` with none.
+
+  `worker/steam.ts` and `worker/index.ts` send headers to match. **This has not been tested from
+  Cloudflare's production network**, where Steam may treat requests differently again. Check the
+  profile, screenshot and Market routes right after the first deploy, and watch the Worker logs for
+  `Profile request failed`.
 - The `/guides/:slug` title and description rewrite is kept: the Worker reads `index.html` from the
   assets and rewrites it.
 - The optional PostgreSQL catalog index and unique-profile metric are dropped. `GET /api/catalog-status`
@@ -87,10 +99,10 @@ profile, so it gets no preview button.
 
 | Setting | Production | Local development |
 | --- | --- | --- |
-| Studio `VITE_PROFILE_PREVIEW_ORIGIN` and Worker var `PROFILE_PREVIEW_ORIGIN` | `https://preview.lannahirave.com` | `http://localhost:5174` |
+| Studio `VITE_PROFILE_PREVIEW_ORIGIN` and Worker var `PROFILE_PREVIEW_ORIGIN` | `https://preview.lannahirave.com` | `http://localhost:5180` |
 | SteamCanvas `VITE_ARTWORK_STUDIO_ORIGIN` | `https://artworkstudio.lannahirave.com` | `http://localhost:5173` |
 
-`localhost:5173` and `localhost:5174` are the same site (ports are ignored), so the bridge works in
+`localhost:5173` and `localhost:5180` are the same site (ports are ignored), so the bridge works in
 local development too.
 
 ## 3. Changes in the SteamCanvas fork
@@ -118,8 +130,9 @@ local development too.
 
 - The AdSense script in `index.html` is removed. It carries upstream's publisher ID.
 - The "Support me" link to upstream's Buy Me a Coffee is kept, as credit to the original author.
-- The page has a CSP. It allows `steamcommunity.com`, `*.steamstatic.com`,
-  `images.steamusercontent.com`, and `blob:`/`data:` images, plus the Studio's origin in `frame-src`.
+- The page has a CSP. It allows `steamcommunity.com`, `*.steamstatic.com`, `*.steamusercontent.com`,
+  `*.akamaihd.net`, Google Fonts (which upstream already loads), and `blob:`/`data:` images, plus the Studio's origin in `frame-src`. The profile
+  preview is a `srcdoc` iframe, which inherits this CSP, so `base-uri` also allows `steamcommunity.com`.
   The profile iframe sandbox stays as it is.
 - The "unofficial, not affiliated with Valve" notice is shown, as on the Studio's demo page.
 - Optional, not done yet: renaming the fork or matching the Studio's branding, and telling dumbapplee
@@ -132,6 +145,9 @@ cd steamcanvas
 npm install
 npm run deploy   # builds the frontend and runs wrangler deploy
 ```
+
+Deploy from a clean, pushed commit: the build records `git rev-parse HEAD`, and the footer's "Source
+code of this version" link points to that commit on GitHub.
 
 The custom domain `preview.lannahirave.com` is set in `wrangler.jsonc`. The Studio must be deployed
 with the `/bridge` page and the matching `PROFILE_PREVIEW_ORIGIN` before the preview button works.

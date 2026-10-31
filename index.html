@@ -1,5 +1,6 @@
 <!doctype html>
 <!-- Copyright (C) 2026 dumbapplee -->
+<!-- Modified by lannahirave, 2026: removed the upstream AdSense loader (it carries upstream's publisher ID). -->
 <!-- SPDX-License-Identifier: AGPL-3.0-only -->
 <html lang="en">
   <head>
@@ -9,24 +10,7 @@
     <meta name="theme-color" content="#0a1118" />
     <meta name="description" content="Preview, arrange, and export artwork for your Steam profile before you make changes on Steam." />
     <meta name="robots" content="index,follow" />
-    <meta name="google-adsense-account" content="ca-pub-4824777077254194" />
     <title>Steam Canvas 🖌️ — Steam Profile Editor</title>
-    <script>
-      const desktopViewport = window.matchMedia('(min-width: 651px)');
-      const loadAdSense = () => {
-        if (!desktopViewport.matches || document.querySelector('[data-adsense-loader]')) return;
-
-        const script = document.createElement('script');
-        script.async = true;
-        script.dataset.adsenseLoader = 'true';
-        script.src = 'https://pagead2.googlesyndication.com/pagead/js/adsbygoogle.js?client=ca-pub-4824777077254194';
-        script.crossOrigin = 'anonymous';
-        document.head.append(script);
-      };
-
-      loadAdSense();
-      desktopViewport.addEventListener('change', loadAdSense);
-    </script>
   </head>
   <body>
     <div id="root"></div>
