@@ -1493,3 +1493,15 @@ body { background: #100e16; color: #eeeaf6; }
 .showcase-trash-item > button { border-left-color: #40364e; color: #c1a9ff; }
 .showcase-trash-item > button:hover { background: #2a2236; color: #f3efff; }
 .showcase-trash-item > button:focus-visible { outline-color: #a78bfa; }
+
+/* Modified by lannahirave, 2026: Steam Artwork Studio handoff notice and the licence footer. */
+.handoff-notice { display: flex; align-items: flex-start; gap: 9px; max-width: 640px; margin-top: 12px; padding: 10px 12px; border: 1px solid #342d42; border-radius: 4px; background: rgb(28 24 38 / 82%); color: #cfc7dc; font-size: 12px; line-height: 1.45; }
+.handoff-notice > svg { flex: 0 0 auto; margin-top: 1px; color: #c1a9ff; }
+.handoff-notice a { color: #c1a9ff; }
+.handoff-notice.is-done > svg { color: #8fd694; }
+.handoff-notice.is-error { border-color: #6b3540; background: rgb(48 20 28 / 82%); }
+.handoff-notice.is-error > svg { color: #ff8f9f; }
+.site-footer { display: grid; gap: 4px; margin-top: 28px; padding-top: 14px; border-top: 1px solid #2a2435; color: #8a8296; font-size: 11px; line-height: 1.5; }
+.site-footer p { margin: 0; }
+.site-footer a { color: #b6abc6; }
+.site-footer a:hover { color: #e4dcef; }

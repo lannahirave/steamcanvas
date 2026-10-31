@@ -1,15 +1,74 @@
 // Copyright (C) 2026 dumbapplee
+// Modified by lannahirave, 2026: Steam Artwork Studio handoff, source and licence notices,
+// and links to this fork.
 // SPDX-License-Identifier: AGPL-3.0-only
 
 import { useEffect, useRef, useState, type FormEvent } from 'react';
-import { ArrowUpRight, Check, CircleHelp, Coffee, Download, ExternalLink, Github, History, LoaderCircle, PanelsTopLeft, Pause, Play, RotateCcw, Search, ShieldCheck, X } from 'lucide-react';
+import { ArrowUpRight, Check, CircleHelp, Coffee, Download, ExternalLink, Github, History, Images, LoaderCircle, PanelsTopLeft, Pause, Play, RotateCcw, Search, ShieldCheck, TriangleAlert, X } from 'lucide-react';
 import AvatarEditor, { DEFAULT_AVATAR_EDIT, type AvatarEditState } from './components/AvatarEditor';
 import AvatarFramePicker, { type SteamAvatarFrame } from './components/AvatarFramePicker';
 import BackgroundPicker, { type SteamBackground } from './components/BackgroundPicker';
 import ProfileThemePicker, { type AppliedProfileTheme } from './components/ProfileThemePicker';
-import ShowcaseEditor, { type RemovedShowcase } from './components/ShowcaseEditor';
+import ShowcaseEditor, { type IncomingArtworkResult, type RemovedShowcase } from './components/ShowcaseEditor';
 import GuidePage, { getGuideForPath } from './components/GuidePage';
 import { ensureShowcaseArea } from './utils/showcaseArea';
+import {
+  ARTWORK_STUDIO_URL,
+  clearHandoffFromUrl,
+  describePreset,
+  readHandoffId,
+  requestHandoff,
+  type HandoffConnection,
+  type IncomingArtwork,
+} from './utils/artworkStudioHandoff';
+
+const forkRepositoryUrl = 'https://github.com/lannahirave/steamcanvas';
+const upstreamRepositoryUrl = 'https://github.com/dumbapplee/steamcanvas';
+const sourceCodeUrl = __SOURCE_COMMIT__ ? `${forkRepositoryUrl}/tree/${__SOURCE_COMMIT__}` : forkRepositoryUrl;
+
+type HandoffState =
+  | { status: 'none' }
+  | { status: 'loading' }
+  | { status: 'ready'; artwork: IncomingArtwork }
+  | { status: 'applied'; artwork: IncomingArtwork; showcaseTitle: string }
+  | { status: 'error'; message: string };
+
+function HandoffNotice({ state, hasProfile }: { state: HandoffState; hasProfile: boolean }) {
+  if (state.status === 'none') return null;
+  if (state.status === 'loading') {
+    return <div className="handoff-notice" role="status"><LoaderCircle className="spin" size={15} /><span>Getting your GIFs from Steam Artwork Studio…</span></div>;
+  }
+  if (state.status === 'error') {
+    return <div className="handoff-notice is-error" role="alert"><TriangleAlert size={15} /><span>{state.message} <a href={ARTWORK_STUDIO_URL}>Open Steam Artwork Studio</a></span></div>;
+  }
+  const count = state.artwork.files.length;
+  const files = `${count} ${count === 1 ? 'file' : 'files'}`;
+  if (state.status === 'applied') {
+    return <div className="handoff-notice is-done" role="status"><Check size={15} /><span>Placed {files} from Steam Artwork Studio in <strong>{state.showcaseTitle}</strong>. This is only a preview: upload the files from the Studio to Steam yourself.</span></div>;
+  }
+  return (
+    <div className="handoff-notice" role="status">
+      <Images size={15} />
+      <span>
+        {files} from Steam Artwork Studio ({describePreset(state.artwork)}{state.artwork.sourceName ? `, ${state.artwork.sourceName}` : ''}).
+        {hasProfile ? ' Placing them in your showcase…' : ' Load your public profile, or resume your draft, to see them on it.'}
+      </span>
+    </div>
+  );
+}
+
+function SiteFooter() {
+  return (
+    <footer className="site-footer">
+      <p>
+        SteamCanvas by <a href="https://github.com/dumbapplee" target="_blank" rel="noreferrer">dumbapplee</a>, modified by <a href="https://github.com/lannahirave" target="_blank" rel="noreferrer">lannahirave</a> (October 2026) to work with <a href={ARTWORK_STUDIO_URL}>Steam Artwork Studio</a>.
+        {' '}Licensed under the <a href={`${sourceCodeUrl}/LICENSE`} target="_blank" rel="noreferrer">GNU AGPL v3.0</a>.
+        {' '}<a href={sourceCodeUrl} target="_blank" rel="noreferrer">Source code of this version</a> · <a href={upstreamRepositoryUrl} target="_blank" rel="noreferrer">Original project</a>
+      </p>
+      <p>Unofficial tool, not affiliated with or endorsed by Valve. Steam and the Steam logo are trademarks of Valve Corporation. Profile content belongs to its owners.</p>
+    </footer>
+  );
+}
 
 type ProfilePreview = {
   name: string;
@@ -232,6 +291,8 @@ export default function App() {
   const [previewRevision, setPreviewRevision] = useState(0);
   const [projectStatus, setProjectStatus] = useState('Autosave ready');
   const [savedDraft, setSavedDraft] = useState<ProjectDraft | null>(null);
+  const [handoff, setHandoff] = useState<HandoffState>(() => (readHandoffId() ? { status: 'loading' } : { status: 'none' }));
+  const handoffConnection = useRef<HandoffConnection | null>(null);
   const previewFrame = useRef<HTMLIFrameElement>(null);
   const changelogDialog = useRef<HTMLDialogElement>(null);
   const exportAssetsRef = useRef<(() => Promise<void>) | null>(null);
@@ -260,6 +321,40 @@ export default function App() {
 
     return () => window.clearInterval(timer);
   }, [motionEnabled, profile]);
+
+  useEffect(() => {
+    const id = readHandoffId();
+    if (!id) return;
+    let active = true;
+    void requestHandoff(id).then((connection) => {
+      if (!active) {
+        connection.close();
+        return;
+      }
+      handoffConnection.current = connection;
+      setHandoff({ status: 'ready', artwork: connection.artwork });
+    }).catch((caught: unknown) => {
+      if (active) setHandoff({ status: 'error', message: caught instanceof Error ? caught.message : 'Could not receive the GIFs from Steam Artwork Studio.' });
+    });
+    return () => {
+      active = false;
+      handoffConnection.current?.close();
+      handoffConnection.current = null;
+    };
+  }, []);
+
+  function handleIncomingArtworkApplied(result: IncomingArtworkResult) {
+    if (handoff.status !== 'ready') return;
+    if (!result.ok) {
+      setHandoff({ status: 'error', message: result.message });
+      return;
+    }
+    // The autosaved draft now holds the GIFs, so the Studio can drop its copy.
+    handoffConnection.current?.confirmApplied();
+    handoffConnection.current = null;
+    clearHandoffFromUrl();
+    setHandoff({ status: 'applied', artwork: handoff.artwork, showcaseTitle: result.showcaseTitle });
+  }
 
   const themeVariableNames = [
     '--gradient-right', '--gradient-left', '--gradient-background', '--gradient-background-right',
@@ -602,7 +697,8 @@ export default function App() {
         <nav className="topbar-actions" aria-label="Site navigation">
           <a className="topbar-link" href="/guides/featured-artwork">Guides</a>
           <button className="topbar-link changelog-trigger" type="button" aria-label="Open changelog" aria-haspopup="dialog" onClick={() => changelogDialog.current?.showModal()}><History size={15} /><span>Changelog</span></button>
-          <a className="topbar-link" href="https://github.com/dumbapplee/steamcanvas" target="_blank" rel="noreferrer"><Github size={15} /> GitHub <ExternalLink size={12} /></a>
+          <a className="topbar-link" href={ARTWORK_STUDIO_URL}><Images size={15} /> Artwork Studio</a>
+          <a className="topbar-link" href={sourceCodeUrl} target="_blank" rel="noreferrer"><Github size={15} /> Source <ExternalLink size={12} /></a>
           <a className="topbar-link" href="https://buymeacoffee.com/migueelss" target="_blank" rel="noreferrer"><Coffee size={15} /> Support me <ExternalLink size={12} /></a>
         </nav>
       </header>
@@ -632,6 +728,7 @@ export default function App() {
               </div>
               {error ? <p className="entry-error" role="alert">{error}</p> : <p className="entry-hint"><ShieldCheck size={14} /> Public profiles only <span /> SteamID64, custom name, or profile URL</p>}
             </form>
+            <HandoffNotice state={handoff} hasProfile={false} />
             <div className="entry-actions">
               {savedDraft && <button className="entry-resume" type="button" onClick={() => void loadProfileByIdentifier(savedDraft.profileIdentifier, savedDraft)} disabled={loading}><PanelsTopLeft size={15} /> Resume saved draft</button>}
               {loading && <span className="entry-loading"><LoaderCircle className="spin" size={13} /> Fetching profile</span>}
@@ -715,6 +812,7 @@ export default function App() {
             </div>
             {error ? <p className="form-error" role="alert">{error}</p> : <p className="input-hint"><CircleHelp size={13} /> Accepts SteamID64, custom name, or full URL</p>}
           </form>
+          <HandoffNotice state={handoff} hasProfile />
 
           <div className="source-block">
             <span className="source-label">Current source</span>
@@ -814,12 +912,15 @@ export default function App() {
                   removedShowcases={removedShowcases}
                   onRemovedShowcasesChange={setRemovedShowcases}
                   exportAssetsRef={exportAssetsRef}
+                  incomingArtwork={handoff.status === 'ready' ? handoff.artwork : null}
+                  onIncomingArtworkApplied={handleIncomingArtworkApplied}
                 />
                 {profile && <div className="showcase-trash-slot" ref={setShowcaseTrashTarget} />}
           </div>
         </section>
       </section>
       )}
+      <SiteFooter />
       <dialog
         ref={changelogDialog}
         className="changelog-dialog"

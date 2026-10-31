@@ -1,9 +1,11 @@
 // Copyright (C) 2026 dumbapplee
+// Modified by lannahirave, 2026: receive mode for GIFs handed over by Steam Artwork Studio.
 // SPDX-License-Identifier: AGPL-3.0-only
 
 import { useEffect, useLayoutEffect, useRef, useState, type ChangeEvent, type CSSProperties } from 'react';
 import { createPortal } from 'react-dom';
 import { ensureShowcaseArea } from '../utils/showcaseArea';
+import type { IncomingArtwork } from '../utils/artworkStudioHandoff';
 import { Camera, ChevronLeft, ChevronRight, Download, Hammer, ImagePlus, LoaderCircle, Pencil, Plus, RotateCcw, Search, Star, Trash2, X } from 'lucide-react';
 import JSZip from 'jszip';
 import { decompressFrames, parseGIF, type ParsedFrame } from 'gifuct-js';
@@ -44,7 +46,12 @@ type ShowcaseEditorProps = {
 	removedShowcases: RemovedShowcase[];
 	onRemovedShowcasesChange: (showcases: RemovedShowcase[]) => void;
 	exportAssetsRef: { current: (() => Promise<void>) | null };
+	/** GIFs from Steam Artwork Studio to place once the profile preview is ready. */
+	incomingArtwork?: IncomingArtwork | null;
+	onIncomingArtworkApplied?: (result: IncomingArtworkResult) => void;
 };
+
+export type IncomingArtworkResult = { ok: true; showcaseTitle: string } | { ok: false; message: string };
 
 type AnimatedMosaic = { width: number; height: number; mainWidth: number; panelWidths?: number[]; panelRegions?: Array<{ x: number; y: number; width: number; height: number }>; format: 'gif' | 'apng' };
 type ArtworkMosaic = {
@@ -176,6 +183,11 @@ function hasTwoPanelImageEditor(kind: ShowcaseKind): boolean {
 
 function getMosaicPanelCount(kind: ShowcaseKind, layout: ArtworkLayout, workshopRows: WorkshopRows = 1): number {
 	return kind === 'workshop' ? workshopRows * 5 : hasTwoPanelImageEditor(kind) ? layout === 'main-three-side' ? 4 : 2 : 1;
+}
+
+// Width of a received part, from the Studio's manifest when present, else from the file name order.
+function incomingArtworkWidth(artwork: IncomingArtwork, file: File): number {
+	return artwork.widths?.[artwork.files.indexOf(file)] ?? (artwork.files.length - artwork.files.indexOf(file));
 }
 
 function fitFeaturedImage(image: HTMLImageElement): void {
@@ -689,8 +701,11 @@ function sourceName(source: EditorSource): string {
 	return isPublicScreenshot(source) ? `Screenshot ${source.id}` : source.name;
 }
 
-export default function ShowcaseEditor({ previewDocument, profileUrl, profileName, addControlTarget, trashControlTarget, removedShowcases, onRemovedShowcasesChange, exportAssetsRef }: ShowcaseEditorProps) {
+export default function ShowcaseEditor({ previewDocument, profileUrl, profileName, addControlTarget, trashControlTarget, removedShowcases, onRemovedShowcasesChange, exportAssetsRef, incomingArtwork = null, onIncomingArtworkApplied }: ShowcaseEditorProps) {
 	const [entries, setEntries] = useState<ShowcaseEntry[]>([]);
+	// The document the current entries were read from, so receive mode waits for the scan to finish.
+	const [entriesDocument, setEntriesDocument] = useState<Document | null>(null);
+	const appliedIncomingIdRef = useRef<string | null>(null);
 	const [error, setError] = useState('');
 	const [editingId, setEditingId] = useState<string | null>(null);
 	const [imageInputMode, setImageInputMode] = useState<ImageInputMode>('composite');
@@ -746,6 +761,7 @@ export default function ShowcaseEditor({ previewDocument, profileUrl, profileNam
 		const area = getShowcaseArea(previewDocument, true);
 		if (!area) {
 			setEntries([]);
+			setEntriesDocument(null);
 			setAddControlHost(null);
 			return;
 		}
@@ -771,6 +787,7 @@ export default function ShowcaseEditor({ previewDocument, profileUrl, profileNam
 				return { id, kind, title, element, host, ...(exportFiles.length ? { exportFiles } : {}) };
 			});
 		setEntries(nextEntries);
+		setEntriesDocument(previewDocument);
 		const addHost = addControlTarget?.ownerDocument.createElement('div') || null;
 		if (addHost && addControlTarget) {
 			addHost.dataset.steamcanvasShowcaseControls = 'add-showcase';
@@ -1355,12 +1372,10 @@ export default function ShowcaseEditor({ previewDocument, profileUrl, profileNam
 		onRemovedShowcasesChange(removedShowcases.filter((item) => item.key !== archived.key));
 	}
 
-	function addShowcase(kind: CreatableShowcaseKind) {
+	/** Builds a new showcase, inserts it before Steam's add-showcase placeholder and returns it. */
+	function createShowcase(kind: CreatableShowcaseKind): ShowcaseEntry | null {
 		const area = getShowcaseArea(previewDocument, true);
-		if (!area) {
-			setError('Showcase area not found.');
-			return;
-		}
+		if (!area) return null;
 		const element = kind === 'workshop'
 			? makeWorkshopShowcase(area.ownerDocument)
 			: kind === 'screenshot'
@@ -1379,12 +1394,24 @@ export default function ShowcaseEditor({ previewDocument, profileUrl, profileNam
 		const entry: ShowcaseEntry = { id, kind, title, element, host };
 		const placeholder = [...area.children].find((child) => child.classList.contains('customization_edit')) || null;
 		area.insertBefore(element, placeholder);
-		const previewWindow = area.ownerDocument.defaultView;
-		if (previewWindow) {
-			const targetTop = element.getBoundingClientRect().top + previewWindow.scrollY - 24;
-			previewWindow.scrollTo({ top: Math.max(0, targetTop), behavior: 'smooth' });
-		}
 		setEntries((current) => [...current, entry]);
+		return entry;
+	}
+
+	function scrollToShowcase(element: HTMLElement) {
+		const previewWindow = element.ownerDocument.defaultView;
+		if (!previewWindow) return;
+		const targetTop = element.getBoundingClientRect().top + previewWindow.scrollY - 24;
+		previewWindow.scrollTo({ top: Math.max(0, targetTop), behavior: 'smooth' });
+	}
+
+	function addShowcase(kind: CreatableShowcaseKind) {
+		const entry = createShowcase(kind);
+		if (!entry) {
+			setError('Showcase area not found.');
+			return;
+		}
+		scrollToShowcase(entry.element);
 		setAddingOpen(false);
 		setEditingId(null);
 		setError('');
@@ -1897,18 +1924,19 @@ export default function ShowcaseEditor({ previewDocument, profileUrl, profileNam
 		}
 	}
 
-	async function updateArtwork(entry: ShowcaseEntry, files: EditorSource[], mode: ImageInputMode): Promise<boolean> {
+	// layout and rows default to the open editor's state; receive mode passes its own.
+	async function updateArtwork(entry: ShowcaseEntry, files: EditorSource[], mode: ImageInputMode, layout: ArtworkLayout = artworkLayout, rows: WorkshopRows = workshopRows): Promise<boolean> {
 		if (!files.length) return false;
 		if (files.some((file) => !isPublicScreenshot(file) && !/^image\/(png|jpeg|webp|gif|avif|apng)$/.test(file.type))) {
 			setEditorError('Choose PNG, JPG, WEBP, GIF, APNG, or AVIF images.');
 			return false;
 		}
-		const panelCount = getMosaicPanelCount(entry.kind, artworkLayout, workshopRows);
-		const workshopRowUploads = mode === 'workshop-rows' && entry.kind === 'workshop' && workshopRows > 1 && files.length === workshopRows && files.every((file) => !isPublicScreenshot(file));
+		const panelCount = getMosaicPanelCount(entry.kind, layout, rows);
+		const workshopRowUploads = mode === 'workshop-rows' && entry.kind === 'workshop' && rows > 1 && files.length === rows && files.every((file) => !isPublicScreenshot(file));
 		const separateUploads = mode === 'separate' && panelCount > 1 && files.length === panelCount;
 		if (!workshopRowUploads && files.length !== 1 && !separateUploads && mode !== 'public') {
-			setEditorError(entry.kind === 'workshop' && workshopRows > 1
-				? `Choose ${workshopRows} images (one per row) or exactly ${panelCount} ready-made panels.`
+			setEditorError(entry.kind === 'workshop' && rows > 1
+				? `Choose ${rows} images (one per row) or exactly ${panelCount} ready-made panels.`
 				: `Choose one complete image or exactly ${panelCount} separate panels.`);
 			return false;
 		}
@@ -1952,7 +1980,7 @@ export default function ShowcaseEditor({ previewDocument, profileUrl, profileNam
 				: separateUploads
 				? { images: await Promise.all(files.map((file) => readImageFile(file as File)) ) }
 				: hasTwoPanelImageEditor(entry.kind)
-				? await splitArtworkMosaic(files[0] as File, artworkLayout)
+				? await splitArtworkMosaic(files[0] as File, layout)
 				: entry.kind === 'workshop'
 					? await splitWorkshopMosaic(files[0] as File)
 					: { images: [await new Promise<string>((resolve, reject) => {
@@ -2049,12 +2077,12 @@ export default function ShowcaseEditor({ previewDocument, profileUrl, profileNam
 				}
 			}
 			if (entry.kind === 'workshop') {
-				setWorkshopShowcaseRows(entry, workshopRows);
-				entry.element.dataset.steamcanvasWorkshopRows = String(workshopRows);
+				setWorkshopShowcaseRows(entry, rows);
+				entry.element.dataset.steamcanvasWorkshopRows = String(rows);
 			}
 			if (hasTwoPanelImageEditor(entry.kind)) {
 				const sideSlots = [...entry.element.querySelectorAll<HTMLElement>('.screenshot_showcase_smallscreenshot.showcase_slot')];
-				const panelCount = getMosaicPanelCount(entry.kind, artworkLayout);
+				const panelCount = getMosaicPanelCount(entry.kind, layout);
 				sideSlots.slice(panelCount - 1).forEach((slot) => slot.remove());
 				entry.element.dataset.steamcanvasMosaic = 'true';
 				entry.element.dataset.steamcanvasMosaicPanels = String(panelCount);
@@ -2175,6 +2203,44 @@ export default function ShowcaseEditor({ previewDocument, profileUrl, profileNam
 			return false;
 		}
 	}
+
+	// Receive mode: places GIFs from Steam Artwork Studio in a matching showcase once the profile
+	// preview has been scanned. An existing showcase of the right type is reused; otherwise one is
+	// added. The Studio's parts are already cut to Steam's sizes, so they go in as ready-made panels.
+	useEffect(() => {
+		if (!incomingArtwork || !previewDocument || entriesDocument !== previewDocument) return;
+		if (appliedIncomingIdRef.current === incomingArtwork.id) return;
+		appliedIncomingIdRef.current = incomingArtwork.id;
+
+		const kind: CreatableShowcaseKind = incomingArtwork.preset === 'workshop'
+			? 'workshop'
+			: incomingArtwork.preset === 'featured' ? 'featured-artwork' : 'artwork';
+		const rows = incomingArtwork.preset === 'workshop' ? incomingArtwork.workshopRows : 1;
+		// Main panel first: the Studio names it _part_01, but order by width so it never depends on names.
+		const files = kind === 'artwork'
+			? [...incomingArtwork.files].sort((left, right) => incomingArtworkWidth(incomingArtwork, right) - incomingArtworkWidth(incomingArtwork, left))
+			: incomingArtwork.files;
+		const mode: ImageInputMode = kind === 'featured-artwork' ? 'composite' : 'separate';
+
+		void (async () => {
+			const entry = entries.find((item) => item.kind === kind) || createShowcase(kind);
+			if (!entry) {
+				onIncomingArtworkApplied?.({ ok: false, message: 'This profile has no showcase area SteamCanvas can add to.' });
+				return;
+			}
+			setEditingId(null);
+			if (kind === 'workshop') setWorkshopRows(rows);
+			if (kind === 'artwork') setArtworkLayout('main-side');
+			const applied = await updateArtwork(entry, files, mode, 'main-side', rows);
+			if (applied) {
+				scrollToShowcase(entry.element);
+				onIncomingArtworkApplied?.({ ok: true, showcaseTitle: entry.title });
+			} else {
+				onIncomingArtworkApplied?.({ ok: false, message: 'SteamCanvas could not place these GIFs. Open the showcase editor and select the files from the Studio ZIP instead.' });
+			}
+		})();
+	// Runs once per handoff when the scanned entries are ready; later entry changes must not re-apply it.
+	}, [incomingArtwork, previewDocument, entriesDocument]);
 
 	const buttonStyle: CSSProperties = {
 		minHeight: '30px', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', gap: '6px', padding: '0 9px',
