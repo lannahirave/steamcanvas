@@ -8,6 +8,8 @@ dist-ssr/
 # Local environment files
 .env
 .env.*
+!.env.development
+!.env.node
 !.env.example
 
 # Logs and debug output
@@ -27,3 +29,6 @@ coverage/
 .idea/
 .DS_Store
 Thumbs.db
+# Wrangler state
+.wrangler/
+.dev.vars

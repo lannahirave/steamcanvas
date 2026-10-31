@@ -1,0 +1,2 @@
+# Copy to .dev.vars for `npm run dev`. Points the CSP frame-src at the local Studio dev server.
+ARTWORK_STUDIO_ORIGIN=http://localhost:5173

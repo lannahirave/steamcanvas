@@ -1,0 +1,22 @@
+// Cloudflare Worker for the SteamCanvas fork used by Steam Artwork Studio.
+// See docs/ARTWORK_STUDIO_INTEGRATION.md.
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "steamcanvas",
+  "main": "worker/index.ts",
+  "compatibility_date": "2026-10-01",
+  "assets": {
+    "directory": "./dist",
+    "binding": "ASSETS",
+    "not_found_handling": "single-page-application",
+    // The Worker adds the security headers to every response, so it runs before static assets.
+    "run_worker_first": true
+  },
+  "routes": [
+    { "pattern": "preview.lannahirave.com", "custom_domain": true }
+  ],
+  "vars": {
+    "ARTWORK_STUDIO_ORIGIN": "https://artworkstudio.lannahirave.com"
+  },
+  "observability": { "enabled": true }
+}

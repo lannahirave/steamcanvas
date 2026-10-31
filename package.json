@@ -9,10 +9,14 @@
   "version": "0.1.0",
   "type": "module",
   "scripts": {
-    "dev": "concurrently -k \"npm:dev:server\" \"npm:dev:client\"",
-    "dev:server": "tsx watch server/index.ts",
+    "dev": "concurrently -k \"npm:dev:worker\" \"npm:dev:client\"",
+    "dev:worker": "node -e \"require('fs').mkdirSync('dist',{recursive:true})\" && wrangler dev --port 8790",
     "dev:client": "vite --host 0.0.0.0",
-    "build": "tsc --noEmit -p tsconfig.app.json && tsc --noEmit -p tsconfig.server.json && vite build",
+    "dev:node": "concurrently -k \"npm:dev:server\" \"npm:dev:client:node\"",
+    "dev:client:node": "vite --host 0.0.0.0 --mode node",
+    "dev:server": "tsx watch server/index.ts",
+    "build": "tsc --noEmit -p tsconfig.app.json && tsc --noEmit -p tsconfig.worker.json && tsc --noEmit -p tsconfig.server.json && vite build",
+    "deploy": "npm run build && wrangler deploy",
     "start": "tsx server/index.ts"
   },
   "dependencies": {
@@ -28,6 +32,7 @@
     "react-dom": "^19.0.0"
   },
   "devDependencies": {
+    "@cloudflare/workers-types": "^5.20261031.1",
     "@types/express": "^5.0.1",
     "@types/node": "^22.13.10",
     "@types/pg": "^8.23.1",
@@ -37,6 +42,7 @@
     "concurrently": "^9.1.2",
     "tsx": "^4.19.3",
     "typescript": "^5.7.3",
-    "vite": "^6.2.2"
+    "vite": "^6.2.2",
+    "wrangler": "^4.156.0"
   }
 }
