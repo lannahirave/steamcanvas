@@ -33,6 +33,8 @@ interface Env {
   ASSETS: Fetcher;
   /** Origin of Steam Artwork Studio, whose /bridge page SteamCanvas embeds for handoffs. */
   ARTWORK_STUDIO_ORIGIN?: string;
+  /** "true" on the beta deployment, so search engines skip it. */
+  ROBOTS_NOINDEX?: string;
 }
 
 type SteamMarketItem = {
@@ -544,6 +546,7 @@ function withSecurityHeaders(response: Response, env: Env): Response {
   headers.set('X-Content-Type-Options', 'nosniff');
   headers.set('X-Frame-Options', 'DENY');
   headers.set('Referrer-Policy', 'strict-origin-when-cross-origin');
+  if (env.ROBOTS_NOINDEX === 'true') headers.set('X-Robots-Tag', 'noindex, nofollow');
   return new Response(response.body, { status: response.status, statusText: response.statusText, headers });
 }
 

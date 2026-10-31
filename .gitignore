@@ -10,6 +10,7 @@ dist-ssr/
 .env.*
 !.env.development
 !.env.node
+!.env.beta
 !.env.example
 
 # Logs and debug output

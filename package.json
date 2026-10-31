@@ -16,7 +16,9 @@
     "dev:client:node": "vite --host 0.0.0.0 --mode node",
     "dev:server": "tsx watch server/index.ts",
     "build": "tsc --noEmit -p tsconfig.app.json && tsc --noEmit -p tsconfig.worker.json && tsc --noEmit -p tsconfig.server.json && vite build",
+    "build:beta": "tsc --noEmit -p tsconfig.app.json && tsc --noEmit -p tsconfig.worker.json && tsc --noEmit -p tsconfig.server.json && vite build --mode beta",
     "deploy": "npm run build && wrangler deploy",
+    "deploy:beta": "npm run build:beta && wrangler deploy --env beta",
     "start": "tsx server/index.ts"
   },
   "dependencies": {

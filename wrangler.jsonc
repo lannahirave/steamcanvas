@@ -18,5 +18,22 @@
   "vars": {
     "ARTWORK_STUDIO_ORIGIN": "https://artworkstudio.lannahirave.com"
   },
-  "observability": { "enabled": true }
+  // Serve only the custom domain, not a duplicate *.workers.dev copy.
+  "workers_dev": false,
+  "observability": { "enabled": true },
+  "env": {
+    // Beta: `wrangler deploy --env beta`, deployed by CI from the beta branch. Vars and routes are
+    // not inherited, so they are repeated here.
+    "beta": {
+      "name": "steamcanvas-beta",
+      "routes": [
+        { "pattern": "previewartwork-beta.lannahirave.com", "custom_domain": true }
+      ],
+      "workers_dev": false,
+      "vars": {
+        "ARTWORK_STUDIO_ORIGIN": "https://artworkstudio-beta.lannahirave.com",
+        "ROBOTS_NOINDEX": "true"
+      }
+    }
+  }
 }

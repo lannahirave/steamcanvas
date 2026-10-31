@@ -77,6 +77,15 @@ npm run deploy
 
 The build type-checks the client, the Worker, and the Express server, then creates the frontend in `dist/`. `npm run deploy` publishes the Worker and the built files with Wrangler, using `wrangler.jsonc`. `npm run start` still serves the build with the Express server at **[http://localhost:8787](http://localhost:8787)**.
 
+GitHub Actions (`.github/workflows/ci.yml`) type-checks and builds every push and pull request, then deploys:
+
+| Branch | Site | Worker |
+| --- | --- | --- |
+| `beta` | https://previewartwork-beta.lannahirave.com, paired with https://artworkstudio-beta.lannahirave.com | `steamcanvas-beta` (`env.beta`, noindex) |
+| `main` | https://previewartwork.lannahirave.com, paired with https://artworkstudio.lannahirave.com | `steamcanvas` |
+
+Work on `beta`, check the beta site, then merge `beta` into `main` to release. The workflow needs the repository secrets `CLOUDFLARE_ACCOUNT_ID` and `CLOUDFLARE_API_TOKEN`. Manual deploys: `npm run deploy` and `npm run deploy:beta`.
+
 ### Optional catalog database
 
 The Worker has no catalog database: `/api/catalog-status` and `/api/profile-metrics` answer 503 there. With the Express server, set `DATABASE_URL` for the server to enable its PostgreSQL-backed catalog indexing and global unique-profile metric; without it, Points Shop catalog searches use Steam's fallback and profile metrics are unavailable. The local development setup does not require PostgreSQL.
