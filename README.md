@@ -77,14 +77,14 @@ npm run deploy
 
 The build type-checks the client, the Worker, and the Express server, then creates the frontend in `dist/`. `npm run deploy` publishes the Worker and the built files with Wrangler, using `wrangler.jsonc`. `npm run start` still serves the build with the Express server at **[http://localhost:8787](http://localhost:8787)**.
 
-GitHub Actions (`.github/workflows/ci.yml`) type-checks and builds every push and pull request, then deploys:
+Cloudflare Workers Builds deploys each branch: every Worker is connected to this repository in the Cloudflare dashboard (Worker → Settings → Builds) and watches one branch. No API token is stored in GitHub.
 
-| Branch | Site | Worker |
-| --- | --- | --- |
-| `beta` | https://previewartwork-beta.lannahirave.com, paired with https://artworkstudio-beta.lannahirave.com | `steamcanvas-beta` (`env.beta`, noindex) |
-| `main` | https://previewartwork.lannahirave.com, paired with https://artworkstudio.lannahirave.com | `steamcanvas` |
+| Branch | Site | Worker | Build command | Deploy command |
+| --- | --- | --- | --- | --- |
+| `beta` | https://previewartwork-beta.lannahirave.com, paired with https://artworkstudio-beta.lannahirave.com | `steamcanvas-beta` (`env.beta`, noindex) | `npm run build:beta` | `npx wrangler deploy --env beta` |
+| `main` | https://previewartwork.lannahirave.com, paired with https://artworkstudio.lannahirave.com | `steamcanvas` | `npm run build` | `npx wrangler deploy` |
 
-Work on `beta`, check the beta site, then merge `beta` into `main` to release. The workflow needs the repository secrets `CLOUDFLARE_ACCOUNT_ID` and `CLOUDFLARE_API_TOKEN`. Manual deploys: `npm run deploy` and `npm run deploy:beta`.
+Turn off non-production branch builds, so each Worker only builds its own branch. Work on `beta`, check the beta site, then merge `beta` into `main` to release. Manual deploys: `npm run deploy` and `npm run deploy:beta`.
 
 ### Optional catalog database
 
