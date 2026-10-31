@@ -19,7 +19,9 @@
     "build:beta": "tsc --noEmit -p tsconfig.app.json && tsc --noEmit -p tsconfig.worker.json && tsc --noEmit -p tsconfig.server.json && vite build --mode beta",
     "deploy": "npm run build && wrangler deploy",
     "deploy:beta": "npm run build:beta && wrangler deploy --env beta",
-    "start": "tsx server/index.ts"
+    "start": "tsx server/index.ts",
+    "release:beta": "node scripts/deploy.mjs beta",
+    "release:prod": "node scripts/deploy.mjs prod"
   },
   "dependencies": {
     "axios": "^1.8.4",

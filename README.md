@@ -77,14 +77,14 @@ npm run deploy
 
 The build type-checks the client, the Worker, and the Express server, then creates the frontend in `dist/`. `npm run deploy` publishes the Worker and the built files with Wrangler, using `wrangler.jsonc`. `npm run start` still serves the build with the Express server at **[http://localhost:8787](http://localhost:8787)**.
 
-Cloudflare Workers Builds deploys each branch: every Worker is connected to this repository in the Cloudflare dashboard (Worker → Settings → Builds) and watches one branch. No API token is stored in GitHub.
+Deploys are manual, from your machine, with Wrangler logged in (`npx wrangler login`):
 
-| Branch | Site | Worker | Build command | Deploy command |
-| --- | --- | --- | --- | --- |
-| `beta` | https://previewartwork-beta.lannahirave.com, paired with https://artworkstudio-beta.lannahirave.com | `steamcanvas-beta` (`env.beta`, noindex) | `npm run build:beta` | `npx wrangler deploy --env beta` |
-| `main` | https://previewartwork.lannahirave.com, paired with https://artworkstudio.lannahirave.com | `steamcanvas` | `npm run build` | `npx wrangler deploy` |
+| Command | Branch | Site | Worker |
+| --- | --- | --- | --- |
+| `npm run release:beta` | `beta` | https://previewartwork-beta.lannahirave.com, paired with https://artworkstudio-beta.lannahirave.com | `steamcanvas-beta` (`env.beta`, noindex) |
+| `npm run release:prod` | `main` | https://previewartwork.lannahirave.com, paired with https://artworkstudio.lannahirave.com | `steamcanvas` |
 
-Turn off non-production branch builds, so each Worker only builds its own branch. Work on `beta`, check the beta site, then merge `beta` into `main` to release. Manual deploys: `npm run deploy` and `npm run deploy:beta`.
+`scripts/deploy.mjs` refuses to deploy unless you are on the target branch with a clean working tree and HEAD matches the pushed `origin/<branch>`, because the footer's "Source" link points at the built commit. It then builds, deploys with the commit in the version message, and checks that the site answers. Production asks you to type `prod` first (`--yes` skips this). Work on `beta`, push, run `npm run release:beta`, check the beta site, then merge `beta` into `main`, push, and run `npm run release:prod`. `npm run deploy` and `npm run deploy:beta` still deploy without these checks.
 
 ### Optional catalog database
 
@@ -151,6 +151,8 @@ docs/
 | `npm run dev:node` | Start the Vite frontend with the original Express server |
 | `npm run build` | Type-check the client, Worker and server, then build the frontend |
 | `npm run deploy` | Build, then deploy the Worker with Wrangler |
+| `npm run release:beta` | Check the `beta` branch is clean and pushed, then build and deploy the beta Worker |
+| `npm run release:prod` | The same for `main` and production, after you confirm |
 | `npm run start` | Serve the production build with the Express server |
 
 ## License
