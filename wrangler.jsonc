@@ -13,7 +13,7 @@
     "run_worker_first": true
   },
   "routes": [
-    { "pattern": "preview.lannahirave.com", "custom_domain": true }
+    { "pattern": "previewartwork.lannahirave.com", "custom_domain": true }
   ],
   "vars": {
     "ARTWORK_STUDIO_ORIGIN": "https://artworkstudio.lannahirave.com"

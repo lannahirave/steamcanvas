@@ -7,7 +7,7 @@ showcase slots of their own public Steam profile.
 
 | Part | Where |
 | --- | --- |
-| Profile preview (this fork) | `https://preview.lannahirave.com`, Cloudflare Worker `steamcanvas` |
+| Profile preview (this fork) | `https://previewartwork.lannahirave.com`, Cloudflare Worker `steamcanvas` |
 | Steam Artwork Studio | `https://artworkstudio.lannahirave.com`, Cloudflare Worker `steam-artwork-studio` |
 | Fork source | https://github.com/lannahirave/steamcanvas |
 
@@ -59,16 +59,16 @@ IndexedDB. The converted GIFs are saved for this session in IndexedDB and reused
 
 1. **Studio:** when the user clicks **Preview on my Steam profile**, it saves the parts plus a small
    manifest (preset, Workshop row count, file names, sizes) to IndexedDB (`steam-artwork-handoff`) under a
-   random handoff ID. The button is a plain link to `https://preview.lannahirave.com/?handoff=<id>`
+   random handoff ID. The button is a plain link to `https://previewartwork.lannahirave.com/?handoff=<id>`
    opened in a new tab; a plain link works fine under COOP. Saving starts on the click, so nothing is
    stored unless the user asks for a preview.
 2. **Studio:** a `/bridge/` page (`bridge/index.html`, a second Vite entry) is served with different headers from the rest of the app:
    - no COEP and no COOP;
-   - `frame-ancestors https://preview.lannahirave.com` in place of `'none'`;
+   - `frame-ancestors https://previewartwork.lannahirave.com` in place of `'none'`;
    - no `X-Frame-Options: DENY`.
 
    This page reads that one handoff from IndexedDB and sends the files to its parent with `postMessage`,
-   addressed only to `https://preview.lannahirave.com` (the browser drops the message for any other
+   addressed only to `https://previewartwork.lannahirave.com` (the browser drops the message for any other
    parent). It deletes the handoff when SteamCanvas confirms that it applied it. Handoffs that are never
    picked up expire after 24 hours, and at most 5 are kept.
 3. **SteamCanvas:** when it sees `?handoff=`, it loads a hidden iframe of
@@ -99,7 +99,7 @@ profile, so it gets no preview button.
 
 | Setting | Production | Local development |
 | --- | --- | --- |
-| Studio `VITE_PROFILE_PREVIEW_ORIGIN` and Worker var `PROFILE_PREVIEW_ORIGIN` | `https://preview.lannahirave.com` | `http://localhost:5180` |
+| Studio `VITE_PROFILE_PREVIEW_ORIGIN` and Worker var `PROFILE_PREVIEW_ORIGIN` | `https://previewartwork.lannahirave.com` | `http://localhost:5180` |
 | SteamCanvas `VITE_ARTWORK_STUDIO_ORIGIN` | `https://artworkstudio.lannahirave.com` | `http://localhost:5173` |
 
 `localhost:5173` and `localhost:5180` are the same site (ports are ignored), so the bridge works in
@@ -149,5 +149,5 @@ npm run deploy   # builds the frontend and runs wrangler deploy
 Deploy from a clean, pushed commit: the build records `git rev-parse HEAD`, and the footer's "Source
 code of this version" link points to that commit on GitHub.
 
-The custom domain `preview.lannahirave.com` is set in `wrangler.jsonc`. The Studio must be deployed
+The custom domain `previewartwork.lannahirave.com` is set in `wrangler.jsonc`. The Studio must be deployed
 with the `/bridge/` page and the matching `PROFILE_PREVIEW_ORIGIN` before the preview button works.

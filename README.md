@@ -19,7 +19,7 @@ Preview profile ideas, tune the details, and shape your showcases — all before
 
 ---
 
-> **This is a modified fork.** It was changed by [lannahirave](https://github.com/lannahirave) in October 2026 to run on Cloudflare Workers at [preview.lannahirave.com](https://preview.lannahirave.com) and to receive converted GIFs from [Steam Artwork Studio](https://artworkstudio.lannahirave.com). The original project is [dumbapplee/steamcanvas](https://github.com/dumbapplee/steamcanvas). What changed and why: [docs/ARTWORK_STUDIO_INTEGRATION.md](docs/ARTWORK_STUDIO_INTEGRATION.md).
+> **This is a modified fork.** It was changed by [lannahirave](https://github.com/lannahirave) in October 2026 to run on Cloudflare Workers at [previewartwork.lannahirave.com](https://previewartwork.lannahirave.com) and to receive converted GIFs from [Steam Artwork Studio](https://artworkstudio.lannahirave.com). The original project is [dumbapplee/steamcanvas](https://github.com/dumbapplee/steamcanvas). What changed and why: [docs/ARTWORK_STUDIO_INTEGRATION.md](docs/ARTWORK_STUDIO_INTEGRATION.md).
 
 SteamCanvas is a local-first editor for experimenting with **public Steam profiles**. Load a profile, try a new look, arrange its showcases, and export the artwork or a portable HTML preview when you are happy with it.
 
