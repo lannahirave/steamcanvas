@@ -115,7 +115,7 @@ export function requestHandoff(id: string): Promise<HandoffConnection> {
     frame.setAttribute('aria-hidden', 'true');
     frame.tabIndex = -1;
     frame.title = 'Steam Artwork Studio handoff';
-    frame.src = `${ARTWORK_STUDIO_ORIGIN}/bridge?id=${encodeURIComponent(id)}`;
+    frame.src = `${ARTWORK_STUDIO_ORIGIN}/bridge/?id=${encodeURIComponent(id)}`;
 
     let settled = false;
     const close = () => {

@@ -62,7 +62,7 @@ IndexedDB. The converted GIFs are saved for this session in IndexedDB and reused
    random handoff ID. The button is a plain link to `https://preview.lannahirave.com/?handoff=<id>`
    opened in a new tab; a plain link works fine under COOP. Saving starts on the click, so nothing is
    stored unless the user asks for a preview.
-2. **Studio:** a `/bridge` page is served with different headers from the rest of the app:
+2. **Studio:** a `/bridge/` page (`bridge/index.html`, a second Vite entry) is served with different headers from the rest of the app:
    - no COEP and no COOP;
    - `frame-ancestors https://preview.lannahirave.com` in place of `'none'`;
    - no `X-Frame-Options: DENY`.
@@ -72,7 +72,7 @@ IndexedDB. The converted GIFs are saved for this session in IndexedDB and reused
    parent). It deletes the handoff when SteamCanvas confirms that it applied it. Handoffs that are never
    picked up expire after 24 hours, and at most 5 are kept.
 3. **SteamCanvas:** when it sees `?handoff=`, it loads a hidden iframe of
-   `https://artworkstudio.lannahirave.com/bridge?id=…`, checks the sender's origin, and receives the
+   `https://artworkstudio.lannahirave.com/bridge/?id=…`, checks the sender's origin, and receives the
    files.
 
 The GIFs never leave the user's computer, so the Studio's "never uploaded" claim still holds. Safari's
@@ -150,4 +150,4 @@ Deploy from a clean, pushed commit: the build records `git rev-parse HEAD`, and 
 code of this version" link points to that commit on GitHub.
 
 The custom domain `preview.lannahirave.com` is set in `wrangler.jsonc`. The Studio must be deployed
-with the `/bridge` page and the matching `PROFILE_PREVIEW_ORIGIN` before the preview button works.
+with the `/bridge/` page and the matching `PROFILE_PREVIEW_ORIGIN` before the preview button works.
