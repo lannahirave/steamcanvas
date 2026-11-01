@@ -42,7 +42,7 @@ the Studio, as a Worker (`worker/`):
 `server/index.ts` stays in the repository unchanged, so upstream changes can still be merged and
 compared. The Worker is what is deployed.
 
-## 2. The handoff: getting the Studio's GIFs into SteamCanvas
+## 2. The Library bridge: getting the Studio's GIFs into SteamCanvas
 
 The Studio needs `crossOriginIsolated` for FFmpeg (`app/web/src/lib/browserSupport.ts`), so its
 `COOP: same-origin` and `COEP: require-corp` headers stay. Because of that:
@@ -54,46 +54,65 @@ The Studio needs `crossOriginIsolated` for FFmpeg (`app/web/src/lib/browserSuppo
 
 **What works is a small bridge page.** Both subdomains are on the same site (`lannahirave.com`), so the
 browser does not partition storage between them, and an iframe from the Studio can read the Studio's own
-IndexedDB. The converted GIFs are saved for this session in IndexedDB and reused from there.
-(`sessionStorage` cannot be used: it is per tab, per origin, and too small for GIFs.)
+IndexedDB.
 
-1. **Studio:** when the user clicks **Preview on my Steam profile**, it saves the parts plus a small
-   manifest (preset, Workshop row count, file names, sizes) to IndexedDB (`steam-artwork-handoff`) under a
-   random handoff ID. The button is a plain link to `https://previewartwork.lannahirave.com/?handoff=<id>`
-   opened in a new tab; a plain link works fine under COOP. Saving starts on the click, so nothing is
-   stored unless the user asks for a preview.
+1. **Studio:** every conversion is saved automatically to the **Library**, an IndexedDB database
+   (`steam-artwork-library`, store `conversions`) in the user's browser. It holds the patched files the
+   user uploads to Steam and, where they differ, unpatched copies for previews. The Studio's **Library**
+   tab lists the saved conversions, downloads them again, and deletes one or all of them.
 2. **Studio:** a `/bridge/` page (`bridge/index.html`, a second Vite entry) is served with different headers from the rest of the app:
    - no COEP and no COOP;
    - `frame-ancestors https://previewartwork.lannahirave.com` in place of `'none'`;
    - no `X-Frame-Options: DENY`.
 
-   This page reads that one handoff from IndexedDB and sends the files to its parent with `postMessage`,
-   addressed only to `https://previewartwork.lannahirave.com` (the browser drops the message for any other
-   parent). It deletes the handoff when SteamCanvas confirms that it applied it. Handoffs that are never
-   picked up expire after 24 hours, and at most 5 are kept.
-3. **SteamCanvas:** when it sees `?handoff=`, it loads a hidden iframe of
-   `https://artworkstudio.lannahirave.com/bridge/?id=…`, checks the sender's origin, and receives the
-   files.
+   It answers requests from its parent with `postMessage`, addressed only to
+   `https://previewartwork.lannahirave.com` (the browser drops the message for any other parent), and it
+   accepts requests only from that origin. It only reads the Library; deleting happens in the Studio.
+3. **SteamCanvas** loads a hidden iframe of `https://artworkstudio.lannahirave.com/bridge/` once per page,
+   when it first needs the Library, and checks the sender's origin of every answer. It uses it in two places:
+   - **Preview on my Steam profile** in the Studio opens `https://previewartwork.lannahirave.com/?studio=<id>`.
+     SteamCanvas fetches that conversion and places it once a profile is loaded.
+   - **Choose from Artwork Studio** in the showcase editor lists the whole Library. Conversions that do
+     not fit the open showcase are shown greyed out with the reason.
 
 The GIFs never leave the user's computer, so the Studio's "never uploaded" claim still holds. Safari's
 tracking prevention can still block a storage iframe even on the same site, so there is a fallback: if
-the bridge reports that storage is blocked or the handoff is missing, SteamCanvas says so and the user
+the bridge reports that storage is blocked or the conversion is missing, SteamCanvas says so and the user
 downloads the ZIP from the Studio and selects the files in the showcase editor.
 
-### Message protocol (version 1)
+### Message protocol (version 2)
 
 All messages are plain objects with `source: 'steam-artwork-studio'` or `source: 'steamcanvas'` and a
-`version: 1` field.
+`version: 2` field. Requests carry a `requestId` (at most 64 characters) that the answer repeats.
 
 | From | `type` | Payload |
 | --- | --- | --- |
-| bridge → SteamCanvas | `handoff` | `{ id, preset, workshopRows, sourceName, createdAt, files: [{ name, type, width, height, blob }] }` |
-| bridge → SteamCanvas | `handoff-error` | `{ id, reason: 'not-found' \| 'expired' \| 'storage-unavailable' }` |
-| SteamCanvas → bridge | `handoff-consumed` | `{ id }` (the bridge then deletes the record) |
+| bridge → SteamCanvas | `ready` | none; sent once when the bridge has loaded |
+| SteamCanvas → bridge | `list` | `{ requestId }` |
+| SteamCanvas → bridge | `get` | `{ requestId, id }` |
+| bridge → SteamCanvas | `list-result` | `{ requestId, entries: Entry[] }`, newest first |
+| bridge → SteamCanvas | `get-result` | `{ requestId, entry: Entry }` |
+| bridge → SteamCanvas | `error` | `{ requestId, reason: 'not-found' \| 'storage-unavailable' }` |
+
+`Entry` is `{ id, createdAt, sourceName, preset, workshopParts, workshopRows, complete, files: [{ name, type,
+width, height, blob }] }`. The files are the unpatched preview copies.
 
 `preset` is the Studio preset: `workshop` (5, 10 or 15 parts), `showcase` (Artwork Showcase: main 506 px
-and side 100 px parts) or `featured` (one 630 px GIF). The Studio's `guide` preset has no place on a
-profile, so it gets no preview button.
+and side 100 px parts), `featured` (one 630 px GIF) or `guide`. Guide covers have no place on a profile,
+and neither do Workshop conversions that finished early with missing parts; SteamCanvas lists them but
+does not place them.
+
+Version 1 was a one-shot handoff (`?handoff=<id>`, record deleted after use). The Studio deletes its old
+`steam-artwork-handoff` database, and SteamCanvas removes `?handoff=` from the URL.
+
+### Editing sessions in the URL
+
+SteamCanvas keeps the current editing session in the URL as `?session=<id>`. The draft (showcase area,
+avatar, frame, background, theme, level) is autosaved in IndexedDB (`steamcanvas-projects`, stores `drafts`
+and `sessions`) under that ID, so reloading the page restores the same profile and edits. Loading another
+profile starts a new session; **Resume saved draft** opens the most recent one. The 12 most recent sessions
+are kept. Once Studio artwork from `?studio=` is placed, `studio` is removed from the URL, so a reload
+restores the draft instead of placing the GIFs again.
 
 ### Origins
 
@@ -111,11 +130,14 @@ local development too.
 
 - **Receive mode:** `updateArtwork` in `ShowcaseEditor.tsx` takes the layout and Workshop row count as
   arguments, so received files go through the same code as manual uploads.
-- **Ask for the profile:** after a handoff, SteamCanvas still needs the user to enter their profile (or
-  resume their draft). Then it creates or reuses the matching showcase:
+- **Ask for the profile:** for `?studio=` artwork, SteamCanvas still needs the user to enter their profile
+  (or resume a draft). Then it creates or reuses the matching showcase:
   - Workshop: the 5/10/15 parts as ready-made panels, set to the right row count;
   - Artwork: main and side panels, skipping SteamCanvas's own split (the Studio's are already cut);
   - Featured: one image.
+- **Library picker:** `StudioLibraryPicker.tsx` in the showcase editor. A Workshop conversion fills rows
+  from the chosen start row and adds rows when needed; Artwork and Screenshot showcases take a main and
+  side pair; a Featured Artwork takes one image. **Apply to preview** places them as usual.
 - **Unpatched copies:** the Studio sends the parts without the `0x21` end-byte or GIF-header patch for the
   preview. The patched files stay the ones users download and upload to Steam.
 

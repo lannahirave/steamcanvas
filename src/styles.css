@@ -1505,3 +1505,29 @@ body { background: #100e16; color: #eeeaf6; }
 .site-footer p { margin: 0; }
 .site-footer a { color: #b6abc6; }
 .site-footer a:hover { color: #e4dcef; }
+
+/* Showcase editor: conversions saved in the Steam Artwork Studio Library. */
+.studio-library-open { width: 100%; text-align: left; font: inherit; }
+.studio-library-open:disabled { cursor: wait; opacity: .65; }
+.studio-library-rows { display: flex; align-items: center; gap: 5px; color: #a49aaf; font-size: 10px; }
+.studio-library-rows span { margin-right: 3px; }
+.studio-library-rows button { min-width: 26px; height: 24px; border: 1px solid #40364e; border-radius: 3px; background: #1d1926; color: #d2c9df; font: 11px Arial, sans-serif; cursor: pointer; }
+.studio-library-rows button.is-active { border-color: #a78bfa; color: #f0eafa; box-shadow: 0 0 0 1px #a78bfa; }
+.studio-library-list { display: grid; gap: 5px; max-height: 300px; overflow-y: auto; padding: 2px; scrollbar-color: #514363 #13111a; }
+.studio-library-item { display: grid; gap: 6px; padding: 6px; border: 1px solid #514363; border-radius: 3px; background: #13111a; color: #ded6ea; text-align: left; font: inherit; cursor: pointer; }
+.studio-library-item:hover:not(:disabled) { border-color: #a78bfa; background: #1d1926; }
+.studio-library-item:disabled { cursor: not-allowed; }
+.studio-library-item.is-unavailable { opacity: .55; }
+.studio-library-thumbs { display: flex; gap: 2px; height: 46px; overflow: hidden; background: #0d0b12; }
+.studio-library-thumbs img { display: block; min-width: 0; height: 100%; object-fit: cover; }
+.studio-library-thumbs.is-workshop img { flex: 1 1 0; }
+.studio-library-thumbs.is-showcase img:first-child { flex: 506 1 0; }
+.studio-library-thumbs.is-showcase img:nth-child(2) { flex: 100 1 0; }
+.studio-library-thumbs.is-featured img, .studio-library-thumbs.is-guide img { flex: 1 1 0; }
+.studio-library-copy { display: grid; gap: 2px; min-width: 0; }
+.studio-library-copy strong { overflow: hidden; font-size: 11px; font-weight: 600; text-overflow: ellipsis; white-space: nowrap; }
+.studio-library-copy small { color: #a49aaf; font-size: 9px; }
+.studio-library-copy .studio-library-problem { color: #f0b37a; }
+.studio-library-retry { justify-self: start; display: inline-flex; align-items: center; gap: 4px; padding: 3px 7px; border: 1px solid #40364e; border-radius: 3px; background: transparent; color: #b6abc6; font: 10px Arial, sans-serif; cursor: pointer; }
+.studio-library-retry:hover { border-color: #766493; color: #f0eafa; }
+.studio-library-picker .showcase-public-picker-copy a { color: #c1a9ff; }

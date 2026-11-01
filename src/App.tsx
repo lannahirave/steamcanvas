@@ -14,13 +14,12 @@ import GuidePage, { getGuideForPath } from './components/GuidePage';
 import { ensureShowcaseArea } from './utils/showcaseArea';
 import {
   ARTWORK_STUDIO_URL,
-  clearHandoffFromUrl,
   describePreset,
-  readHandoffId,
-  requestHandoff,
-  type HandoffConnection,
+  getStudioArtwork,
+  isStudioId,
+  LibraryError,
   type IncomingArtwork,
-} from './utils/artworkStudioHandoff';
+} from './utils/artworkStudioLibrary';
 
 const forkRepositoryUrl = 'https://github.com/lannahirave/steamcanvas';
 const upstreamRepositoryUrl = 'https://github.com/dumbapplee/steamcanvas';
@@ -51,7 +50,7 @@ function HandoffNotice({ state, hasProfile }: { state: HandoffState; hasProfile:
       <Images size={15} />
       <span>
         {files} from Steam Artwork Studio ({describePreset(state.artwork)}{state.artwork.sourceName ? `, ${state.artwork.sourceName}` : ''}).
-        {hasProfile ? ' Placing them in your showcase…' : ' Load your public profile, or resume your draft, to see them on it.'}
+        {hasProfile ? ' Placing them in your showcase…' : ' Load your public profile, or resume a draft, to see them on it.'}
       </span>
     </div>
   );
@@ -108,9 +107,17 @@ type ProjectDraft = {
   };
 };
 
+type SavedSession = { sessionId: string | null; draft: ProjectDraft };
+type SessionMeta = { sessionId: string; updatedAt: number; profileIdentifier: string };
+
 const projectDatabaseName = 'steamcanvas-projects';
 const projectStoreName = 'drafts';
-const autosaveKey = 'autosave';
+const sessionStoreName = 'sessions';
+// Drafts saved before sessions existed live under this key; they are read once and then replaced.
+const legacyAutosaveKey = 'autosave';
+// Drafts hold the showcase images as data URLs, so only the most recent sessions are kept.
+const maxSavedSessions = 12;
+const sessionIdPattern = /^[A-Za-z0-9_-]{12,64}$/;
 let projectDatabase: Promise<IDBDatabase> | null = null;
 
 const changelogEntries = [
@@ -169,8 +176,12 @@ const changelogEntries = [
 function openProjectDatabase(): Promise<IDBDatabase> {
   if (!projectDatabase) {
     projectDatabase = new Promise((resolve, reject) => {
-      const request = indexedDB.open(projectDatabaseName, 1);
-      request.onupgradeneeded = () => request.result.createObjectStore(projectStoreName);
+      const request = indexedDB.open(projectDatabaseName, 2);
+      request.onupgradeneeded = () => {
+        const database = request.result;
+        if (!database.objectStoreNames.contains(projectStoreName)) database.createObjectStore(projectStoreName);
+        if (!database.objectStoreNames.contains(sessionStoreName)) database.createObjectStore(sessionStoreName, { keyPath: 'sessionId' });
+      };
       request.onsuccess = () => resolve(request.result);
       request.onerror = () => reject(request.error || new Error('Could not open local project storage.'));
     });
@@ -178,20 +189,74 @@ function openProjectDatabase(): Promise<IDBDatabase> {
   return projectDatabase;
 }
 
-async function readProjectDraft(): Promise<ProjectDraft | null> {
-  const database = await openProjectDatabase();
+function idbRequest<T>(request: IDBRequest<T>): Promise<T> {
   return new Promise((resolve, reject) => {
-    const request = database.transaction(projectStoreName, 'readonly').objectStore(projectStoreName).get(autosaveKey);
-    request.onsuccess = () => resolve((request.result as ProjectDraft | undefined) || null);
-    request.onerror = () => reject(request.error || new Error('Could not read the saved project.'));
+    request.onsuccess = () => resolve(request.result);
+    request.onerror = () => reject(request.error || new Error('Local project storage failed.'));
   });
 }
 
-async function writeProjectDraft(draft: ProjectDraft): Promise<void> {
+function createSessionId(): string {
+  const bytes = crypto.getRandomValues(new Uint8Array(12));
+  return btoa(String.fromCharCode(...bytes)).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+}
+
+function readUrlParam(name: string): string | null {
+  return new URLSearchParams(globalThis.location.search).get(name);
+}
+
+/** Changes the query string without adding a history entry, so a reload opens the same session. */
+function updateUrlParams(changes: Record<string, string | null>): void {
+  const url = new URL(globalThis.location.href);
+  for (const [name, value] of Object.entries(changes)) {
+    if (value === null) url.searchParams.delete(name);
+    else url.searchParams.set(name, value);
+  }
+  const next = `${url.pathname}${url.search}${url.hash}`;
+  if (next !== `${globalThis.location.pathname}${globalThis.location.search}${globalThis.location.hash}`) {
+    globalThis.history.replaceState(globalThis.history.state, '', next);
+  }
+}
+
+function readSessionIdFromUrl(): string | null {
+  const id = readUrlParam('session');
+  return id && sessionIdPattern.test(id) ? id : null;
+}
+
+async function readSessionDraft(sessionId: string): Promise<ProjectDraft | null> {
+  const database = await openProjectDatabase();
+  const draft = await idbRequest(database.transaction(projectStoreName, 'readonly').objectStore(projectStoreName).get(sessionId));
+  return isProjectDraft(draft) ? draft : null;
+}
+
+/** The most recently saved session, or a draft saved before sessions existed. */
+async function readLatestDraft(): Promise<SavedSession | null> {
+  const database = await openProjectDatabase();
+  const transaction = database.transaction([projectStoreName, sessionStoreName], 'readonly');
+  const sessions = await idbRequest(transaction.objectStore(sessionStoreName).getAll()) as SessionMeta[];
+  const latest = sessions.sort((left, right) => right.updatedAt - left.updatedAt)[0];
+  const key = latest ? latest.sessionId : legacyAutosaveKey;
+  const draft = await idbRequest(transaction.objectStore(projectStoreName).get(key));
+  return isProjectDraft(draft) ? { sessionId: latest ? latest.sessionId : null, draft } : null;
+}
+
+async function writeSessionDraft(sessionId: string, draft: ProjectDraft): Promise<void> {
   const database = await openProjectDatabase();
   return new Promise((resolve, reject) => {
-    const transaction = database.transaction(projectStoreName, 'readwrite');
-    transaction.objectStore(projectStoreName).put(draft, autosaveKey);
+    const transaction = database.transaction([projectStoreName, sessionStoreName], 'readwrite');
+    const drafts = transaction.objectStore(projectStoreName);
+    const sessions = transaction.objectStore(sessionStoreName);
+    drafts.put(draft, sessionId);
+    drafts.delete(legacyAutosaveKey);
+    sessions.put({ sessionId, updatedAt: Date.now(), profileIdentifier: draft.profileIdentifier } satisfies SessionMeta);
+    const all = sessions.getAll();
+    all.onsuccess = () => {
+      const stale = (all.result as SessionMeta[]).sort((left, right) => right.updatedAt - left.updatedAt).slice(maxSavedSessions);
+      for (const session of stale) {
+        drafts.delete(session.sessionId);
+        sessions.delete(session.sessionId);
+      }
+    };
     transaction.oncomplete = () => resolve();
     transaction.onerror = () => reject(transaction.error || new Error('Could not save the project locally.'));
     transaction.onabort = () => reject(transaction.error || new Error('Could not save the project locally.'));
@@ -290,9 +355,11 @@ export default function App() {
   const [previewLoaded, setPreviewLoaded] = useState(false);
   const [previewRevision, setPreviewRevision] = useState(0);
   const [projectStatus, setProjectStatus] = useState('Autosave ready');
-  const [savedDraft, setSavedDraft] = useState<ProjectDraft | null>(null);
-  const [handoff, setHandoff] = useState<HandoffState>(() => (readHandoffId() ? { status: 'loading' } : { status: 'none' }));
-  const handoffConnection = useRef<HandoffConnection | null>(null);
+  const [savedDraft, setSavedDraft] = useState<SavedSession | null>(null);
+  const [restoringSession, setRestoringSession] = useState(() => readSessionIdFromUrl() !== null);
+  const [handoff, setHandoff] = useState<HandoffState>(() => (isStudioId(readUrlParam('studio')) ? { status: 'loading' } : { status: 'none' }));
+  // Identifies this editing session in the URL (?session=) and in local storage, so a reload restores it.
+  const sessionIdRef = useRef<string | null>(null);
   const previewFrame = useRef<HTMLIFrameElement>(null);
   const changelogDialog = useRef<HTMLDialogElement>(null);
   const exportAssetsRef = useRef<(() => Promise<void>) | null>(null);
@@ -322,25 +389,25 @@ export default function App() {
     return () => window.clearInterval(timer);
   }, [motionEnabled, profile]);
 
+  // ?studio=<id>: Steam Artwork Studio sent a saved conversion to place on the profile.
   useEffect(() => {
-    const id = readHandoffId();
-    if (!id) return;
+    // Links from before the Library existed; their one-shot records are gone.
+    if (readUrlParam('handoff')) updateUrlParams({ handoff: null });
+    const id = readUrlParam('studio');
+    if (!isStudioId(id)) {
+      if (id) updateUrlParams({ studio: null });
+      return;
+    }
     let active = true;
-    void requestHandoff(id).then((connection) => {
-      if (!active) {
-        connection.close();
-        return;
-      }
-      handoffConnection.current = connection;
-      setHandoff({ status: 'ready', artwork: connection.artwork });
+    void getStudioArtwork(id).then((artwork) => {
+      if (active) setHandoff({ status: 'ready', artwork });
     }).catch((caught: unknown) => {
-      if (active) setHandoff({ status: 'error', message: caught instanceof Error ? caught.message : 'Could not receive the GIFs from Steam Artwork Studio.' });
+      if (!active) return;
+      // Missing or unusable entries will not come back on a reload; a timeout might.
+      if (caught instanceof LibraryError && caught.reason !== 'timeout') updateUrlParams({ studio: null });
+      setHandoff({ status: 'error', message: caught instanceof Error ? caught.message : 'Could not receive the GIFs from Steam Artwork Studio.' });
     });
-    return () => {
-      active = false;
-      handoffConnection.current?.close();
-      handoffConnection.current = null;
-    };
+    return () => { active = false; };
   }, []);
 
   function handleIncomingArtworkApplied(result: IncomingArtworkResult) {
@@ -349,10 +416,8 @@ export default function App() {
       setHandoff({ status: 'error', message: result.message });
       return;
     }
-    // The autosaved draft now holds the GIFs, so the Studio can drop its copy.
-    handoffConnection.current?.confirmApplied();
-    handoffConnection.current = null;
-    clearHandoffFromUrl();
+    // The session draft now holds the GIFs: a reload restores it instead of placing them again.
+    updateUrlParams({ studio: null });
     setHandoff({ status: 'applied', artwork: handoff.artwork, showcaseTitle: result.showcaseTitle });
   }
 
@@ -523,9 +588,12 @@ export default function App() {
     }
   }, [background, previewLoaded, profile]);
 
-  async function loadProfileByIdentifier(rawIdentifier: string, draft: ProjectDraft | null = null) {
+  /** Loads a profile. With a draft it restores that session; without one it starts a new session. */
+  async function loadProfileByIdentifier(rawIdentifier: string, draft: ProjectDraft | null = null, sessionId: string | null = null) {
     const nextIdentifier = rawIdentifier.trim();
     if (!nextIdentifier || loading) return;
+    const nextSessionId = sessionId || createSessionId();
+    sessionIdRef.current = null;
 
     identifierRef.current = nextIdentifier;
     setIdentifier(nextIdentifier);
@@ -559,6 +627,8 @@ export default function App() {
       const result = await response.json();
       if (!response.ok) throw new Error(result.error || 'Could not load this profile.');
       const loadedProfile = result as ProfilePreview;
+      sessionIdRef.current = nextSessionId;
+      updateUrlParams({ session: nextSessionId });
       setProfile(loadedProfile);
       if (!draft) setPreviewLevel(loadedProfile.level ?? 0);
     } catch (caught) {
@@ -625,18 +695,32 @@ export default function App() {
 
   useEffect(() => {
     let active = true;
-    void readProjectDraft().then((draft) => {
+    const offerLatestDraft = (status?: string) => readLatestDraft().then((latest) => {
       if (!active || identifierRef.current) return;
-      if (draft && isProjectDraft(draft)) {
-        setSavedDraft(draft);
-        setProjectStatus('Saved draft available');
-      } else {
-        setProjectStatus('Autosave ready');
-      }
-    }).catch(() => {
-      if (active) setProjectStatus('Local autosave unavailable');
+      setSavedDraft(latest);
+      setProjectStatus(status || (latest ? 'Saved draft available' : 'Autosave ready'));
+    });
+    const sessionId = readSessionIdFromUrl();
+    const restore = sessionId
+      ? readSessionDraft(sessionId).then((draft) => {
+        if (!active) return;
+        setRestoringSession(false);
+        if (draft) {
+          void loadProfileByIdentifier(draft.profileIdentifier, draft, sessionId);
+          return;
+        }
+        updateUrlParams({ session: null });
+        setError('That editing session is not saved in this browser any more. Load a profile to start again.');
+        return offerLatestDraft();
+      })
+      : offerLatestDraft();
+    restore.catch(() => {
+      if (!active) return;
+      setRestoringSession(false);
+      setProjectStatus('Local autosave unavailable');
     });
     return () => { active = false; };
+  // Runs once on page load; loadProfileByIdentifier only reads state that is still initial here.
   }, []);
 
   useEffect(() => {
@@ -646,10 +730,12 @@ export default function App() {
       globalThis.clearTimeout(timer);
       timer = globalThis.setTimeout(() => {
         try {
+          const sessionId = sessionIdRef.current;
+          if (!sessionId) return;
           const draft = createProjectDraft(showcaseDocument);
           setProjectStatus('Saving draft');
-          void writeProjectDraft(draft).then(() => {
-            setSavedDraft(draft);
+          void writeSessionDraft(sessionId, draft).then(() => {
+            setSavedDraft({ sessionId, draft });
             setProjectStatus('Draft saved locally');
           }).catch(() => setProjectStatus('Autosave failed'));
         } catch {
@@ -730,8 +816,8 @@ export default function App() {
             </form>
             <HandoffNotice state={handoff} hasProfile={false} />
             <div className="entry-actions">
-              {savedDraft && <button className="entry-resume" type="button" onClick={() => void loadProfileByIdentifier(savedDraft.profileIdentifier, savedDraft)} disabled={loading}><PanelsTopLeft size={15} /> Resume saved draft</button>}
-              {loading && <span className="entry-loading"><LoaderCircle className="spin" size={13} /> Fetching profile</span>}
+              {savedDraft && !restoringSession && <button className="entry-resume" type="button" onClick={() => void loadProfileByIdentifier(savedDraft.draft.profileIdentifier, savedDraft.draft, savedDraft.sessionId)} disabled={loading}><PanelsTopLeft size={15} /> Resume saved draft</button>}
+              {(loading || restoringSession) && <span className="entry-loading"><LoaderCircle className="spin" size={13} /> {restoringSession || pendingDraft.current ? 'Restoring your session' : 'Fetching profile'}</span>}
             </div>
           </div>
 

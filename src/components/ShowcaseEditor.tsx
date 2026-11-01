@@ -1,11 +1,12 @@
 // Copyright (C) 2026 dumbapplee
-// Modified by lannahirave, 2026: receive mode for GIFs handed over by Steam Artwork Studio.
+// Modified by lannahirave, 2026: receive mode and a picker for GIFs saved in Steam Artwork Studio.
 // SPDX-License-Identifier: AGPL-3.0-only
 
 import { useEffect, useLayoutEffect, useRef, useState, type ChangeEvent, type CSSProperties } from 'react';
 import { createPortal } from 'react-dom';
 import { ensureShowcaseArea } from '../utils/showcaseArea';
-import type { IncomingArtwork } from '../utils/artworkStudioHandoff';
+import type { IncomingArtwork } from '../utils/artworkStudioLibrary';
+import StudioLibraryPicker from './StudioLibraryPicker';
 import { Camera, ChevronLeft, ChevronRight, Download, Hammer, ImagePlus, LoaderCircle, Pencil, Plus, RotateCcw, Search, Star, Trash2, X } from 'lucide-react';
 import JSZip from 'jszip';
 import { decompressFrames, parseGIF, type ParsedFrame } from 'gifuct-js';
@@ -1715,6 +1716,73 @@ export default function ShowcaseEditor({ previewDocument, profileUrl, profileNam
 		}
 	}
 
+	// Fills whole Workshop rows with ready-made panels, starting at startIndex, and adds rows if needed.
+	async function placeWorkshopPanels(startIndex: number, files: File[]) {
+		const firstRow = Math.floor(startIndex / 5);
+		const lastRow = Math.floor((startIndex + files.length - 1) / 5);
+		if (!files.length || lastRow > 2) return;
+		const rows = Math.max(workshopRows, lastRow + 1) as WorkshopRows;
+		const nextRowFiles = [...workshopRowFiles];
+		const nextPanelFiles = [...workshopPanelFiles];
+		for (let row = firstRow; row <= lastRow; row += 1) {
+			nextRowFiles[row] = null;
+			nextPanelFiles.fill(null, row * 5, row * 5 + 5);
+		}
+		files.forEach((file, index) => { nextPanelFiles[startIndex + index] = file; });
+		setWorkshopRows(rows);
+		setWorkshopRowFiles(nextRowFiles);
+		setWorkshopRowPreviews((current) => current.map((preview, row) => (row >= firstRow && row <= lastRow ? null : preview)));
+		setWorkshopPanelFiles(nextPanelFiles);
+		setEditorFiles([
+			...nextRowFiles.slice(0, rows).filter((file): file is File => !!file),
+			...nextPanelFiles.slice(0, rows * 5).filter((file): file is File => !!file),
+		]);
+		setImageInputMode('workshop-custom');
+		setEditorError('');
+		const requestId = ++previewRequestId.current;
+		setEditorLoading(true);
+		try {
+			const panels = await Promise.all(files.map(readPreviewPanel));
+			if (previewRequestId.current !== requestId) return;
+			setEditorPreview((current) => {
+				const next = [...current];
+				panels.forEach((panel, index) => { next[startIndex + index] = panel; });
+				return next;
+			});
+		} catch (caught) {
+			if (previewRequestId.current === requestId) {
+				setEditorError(caught instanceof Error ? caught.message : 'Could not prepare the Workshop panels.');
+			}
+		} finally {
+			if (previewRequestId.current === requestId) setEditorLoading(false);
+		}
+	}
+
+	// Puts a conversion from the Steam Artwork Studio Library in the open editor. The Studio's parts
+	// are already cut to Steam's sizes, so they go in as ready-made panels; Apply places them.
+	function chooseStudioArtwork(artwork: IncomingArtwork, startRow: number) {
+		if (!activeEditor) return;
+		setEditorError('');
+		setUploadButtonPreview(null);
+		if (activeEditor.kind === 'workshop') {
+			void placeWorkshopPanels((startRow - 1) * 5, artwork.files);
+			return;
+		}
+		if (activeEditor.kind === 'featured-artwork') {
+			const files = artwork.files.slice(0, 1);
+			setImageInputMode('composite');
+			setEditorFiles(files);
+			void updateEditorPreview(activeEditor, files, 'composite');
+			return;
+		}
+		// Main panel first, by width, so the order never depends on file names.
+		const files = [...artwork.files].sort((left, right) => incomingArtworkWidth(artwork, right) - incomingArtworkWidth(artwork, left));
+		setArtworkLayout('main-side');
+		setImageInputMode('separate');
+		setEditorFiles(files);
+		void updateEditorPreview(activeEditor, files, 'separate', 'main-side');
+	}
+
 	function selectWorkshopFiles(event: ChangeEvent<HTMLInputElement>) {
 		const selected = [...(event.target.files || [])];
 		event.target.value = '';
@@ -2482,6 +2550,7 @@ export default function ShowcaseEditor({ previewDocument, profileUrl, profileNam
 									{publicScreenshotExpanded && publicScreenshotHasMore && <button className="showcase-public-load-more" type="button" disabled={publicScreenshotsLoading} onClick={() => void loadPublicScreenshots(publicScreenshotNextPage, true)}>{publicScreenshotsLoading && <LoaderCircle size={13} className="spin" aria-hidden="true" />}{publicScreenshotsLoading ? 'Loading more...' : 'Load more screenshots'}</button>}
 								</> : <div className="showcase-public-picker-status">No public screenshots were found on this profile.</div>}
 							</div>}
+							<StudioLibraryPicker key={activeEditor.id} kind={activeEditor.kind} disabled={editorLoading} onChoose={chooseStudioArtwork} />
 							{activeEditor.kind !== 'workshop' && <label className={`showcase-editor-upload ${editorPanelCount > 1 ? 'is-multiple' : ''}`} onDragOver={(event) => event.preventDefault()} onDrop={(event) => { event.preventDefault(); setShowcaseFiles([...event.dataTransfer.files]); }}>
 								{uploadButtonPreview ? <img className="showcase-editor-upload-thumb" src={uploadButtonPreview} alt="" /> : <ImagePlus size={19} />}
 								<span>
