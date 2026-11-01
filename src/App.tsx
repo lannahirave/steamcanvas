@@ -173,17 +173,46 @@ const changelogEntries = [
   },
 ] as const;
 
+const storageBlockedMessage = 'Another SteamCanvas tab is still open with an older version and is holding your saved drafts. Close the other SteamCanvas tabs, then reload this page.';
+
 function openProjectDatabase(): Promise<IDBDatabase> {
   if (!projectDatabase) {
-    projectDatabase = new Promise((resolve, reject) => {
+    const opening = new Promise<IDBDatabase>((resolve, reject) => {
+      let settled = false;
       const request = indexedDB.open(projectDatabaseName, 2);
       request.onupgradeneeded = () => {
         const database = request.result;
         if (!database.objectStoreNames.contains(projectStoreName)) database.createObjectStore(projectStoreName);
         if (!database.objectStoreNames.contains(sessionStoreName)) database.createObjectStore(sessionStoreName, { keyPath: 'sessionId' });
       };
-      request.onsuccess = () => resolve(request.result);
-      request.onerror = () => reject(request.error || new Error('Could not open local project storage.'));
+      request.onsuccess = () => {
+        const database = request.result;
+        // Step aside when a newer SteamCanvas in another tab needs to upgrade the database.
+        database.onversionchange = () => {
+          database.close();
+          if (projectDatabase === opening) projectDatabase = null;
+        };
+        if (settled) {
+          database.close();
+          return;
+        }
+        settled = true;
+        resolve(database);
+      };
+      request.onerror = () => {
+        settled = true;
+        reject(request.error || new Error('Could not open local project storage.'));
+      };
+      // An open tab with the previous version keeps its connection, so the upgrade would wait forever.
+      request.onblocked = () => {
+        if (settled) return;
+        settled = true;
+        reject(new Error(storageBlockedMessage));
+      };
+    });
+    projectDatabase = opening;
+    opening.catch(() => {
+      if (projectDatabase === opening) projectDatabase = null;
     });
   }
   return projectDatabase;
@@ -714,10 +743,12 @@ export default function App() {
         return offerLatestDraft();
       })
       : offerLatestDraft();
-    restore.catch(() => {
+    restore.catch((caught: unknown) => {
       if (!active) return;
       setRestoringSession(false);
       setProjectStatus('Local autosave unavailable');
+      // Keep ?session= so a reload restores it once the storage is free again.
+      if (sessionId) setError(caught instanceof Error && caught.message === storageBlockedMessage ? storageBlockedMessage : 'Could not open the saved drafts in this browser, so this session cannot be restored.');
     });
     return () => { active = false; };
   // Runs once on page load; loadProfileByIdentifier only reads state that is still initial here.
