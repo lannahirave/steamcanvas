@@ -204,11 +204,15 @@ function openProjectDatabase(): Promise<IDBDatabase> {
         reject(request.error || new Error('Could not open local project storage.'));
       };
       // An open tab with the previous version keeps its connection, so the upgrade would wait forever.
-      request.onblocked = () => {
+      // Only the first waiting request gets a blocked event; later ones (after a reload) just wait, so
+      // a timeout reports it too. Opening normally takes a few milliseconds.
+      const fail = () => {
         if (settled) return;
         settled = true;
         reject(new Error(storageBlockedMessage));
       };
+      request.onblocked = fail;
+      globalThis.setTimeout(fail, 4000);
     });
     projectDatabase = opening;
     opening.catch(() => {
