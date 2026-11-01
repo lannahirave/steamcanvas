@@ -4,7 +4,7 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 
 import { useEffect, useRef, useState, type FormEvent } from 'react';
-import { ArrowUpRight, Check, CircleHelp, Coffee, Download, ExternalLink, Github, History, Images, LoaderCircle, PanelsTopLeft, Pause, Play, RotateCcw, Search, ShieldCheck, TriangleAlert, X } from 'lucide-react';
+import { ArrowUpRight, Check, CircleHelp, Coffee, Download, ExternalLink, Github, History, Images, LoaderCircle, PanelsTopLeft, Pause, Play, RefreshCw, RotateCcw, Search, ShieldCheck, TriangleAlert, X } from 'lucide-react';
 import AvatarEditor, { DEFAULT_AVATAR_EDIT, type AvatarEditState } from './components/AvatarEditor';
 import AvatarFramePicker, { type SteamAvatarFrame } from './components/AvatarFramePicker';
 import BackgroundPicker, { type SteamBackground } from './components/BackgroundPicker';
@@ -755,6 +755,30 @@ export default function App() {
     }
   }
 
+  /** Rebuilds the preview iframe from the current edits, for when it stops matching them. Nothing is discarded. */
+  function reloadProfilePreview() {
+    if (!profile || !previewLoaded || loading || !showcaseDocument) return;
+    let draft: ProjectDraft;
+    try {
+      draft = createProjectDraft(showcaseDocument);
+    } catch {
+      setProjectStatus('Could not reload the preview');
+      return;
+    }
+    // onLoad restores the showcases from this draft; the appearance effects reapply once previewLoaded is true again.
+    pendingDraft.current = draft;
+    setPreviewLoaded(false);
+    setShowcaseDocument(null);
+    setSourceBackgroundImage('');
+    setSourceAvatarFrameImage('');
+    sourceBackgroundStyle.current = null;
+    sourceBackgroundVideo.current = null;
+    sourceAvatarFrame.current = null;
+    sourceBodyClass.current = '';
+    sourceThemeVariables.current = {};
+    setPreviewRevision((revision) => revision + 1);
+  }
+
   function resetProfilePreview() {
     if (!profile || !previewLoaded || loading) return;
     const confirmed = globalThis.confirm('Reset this preview to the loaded Steam profile? All showcase edits and appearance changes will be discarded.');
@@ -1071,6 +1095,7 @@ ${JSON.stringify(draft)}`;
           <div className="preview-toolbar">
             <div className="preview-toolbar-actions" role="group" aria-label="Preview actions">
               <span className="draft-status" role="status" aria-live="polite">{projectStatus === 'Draft saved locally' && <Check size={13} />}{projectStatus}</span>
+              {profile && <button className="project-action" type="button" onClick={reloadProfilePreview} disabled={!previewLoaded || loading} title="Reload the preview from your current edits if it stops matching them. Nothing is discarded."><RefreshCw size={14} />Fix desync</button>}
               {profile && <button className="project-action project-reset-action" type="button" onClick={resetProfilePreview} disabled={!previewLoaded || loading} title="Discard all preview changes and restore the loaded profile"><RotateCcw size={14} />Reset</button>}
               <button className="project-action" type="button" onClick={() => void exportProject()} disabled={!profile || !previewLoaded} title="Download the profile preview HTML and uploaded showcase artwork as ZIP"><Download size={14} />Export</button>
               {profile && <a className="open-source" href={profile.url} target="_blank" rel="noreferrer">Open on Steam <ExternalLink size={13} /></a>}
