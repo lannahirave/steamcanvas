@@ -505,6 +505,12 @@ const guidePageMetadata: Record<string, { title: string; description: string }> 
   },
 };
 
+const betaRobotsTxt = `# SteamCanvas beta (pre-release copy). Not for search engines.
+# The public site is https://previewartwork.lannahirave.com
+User-agent: *
+Disallow: /
+`;
+
 async function handleGuide(request: Request, url: URL, env: Env): Promise<Response | null> {
   const slug = url.pathname.match(/^\/guides\/([^/]+)\/?$/)?.[1];
   const metadata = slug ? guidePageMetadata[slug] : undefined;
@@ -513,8 +519,8 @@ async function handleGuide(request: Request, url: URL, env: Env): Promise<Respon
   if (!index.ok) return index;
   const html = (await index.text())
     .replace(/<title>[^<]*<\/title>/, `<title>${metadata.title}</title>`)
-    .replace(/(<meta name="description" content=")[^"]*("\s*\/?>)/, `$1${metadata.description}$2`)
-    .replace('</head>', `<meta property="og:title" content="${metadata.title}" />\n    <meta property="og:description" content="${metadata.description}" />\n  </head>`);
+    .replace(/(<meta (?:name|property)="(?:og:|twitter:)?description" content=")[^"]*("\s*\/?>)/g, `$1${metadata.description}$2`)
+    .replace(/(<meta (?:name|property)="(?:og|twitter):title" content=")[^"]*("\s*\/?>)/g, `$1${metadata.title}$2`);
   return new Response(html, { status: 200, headers: { 'Content-Type': 'text/html; charset=utf-8' } });
 }
 
@@ -555,7 +561,10 @@ export default {
     const url = new URL(request.url);
     const waitUntil: WaitUntil = (promise) => context.waitUntil(promise);
     let response: Response;
-    if (url.pathname === '/api' || url.pathname.startsWith('/api/')) {
+    if (url.pathname === '/robots.txt' && env.ROBOTS_NOINDEX === 'true') {
+      // Beta and other non-production copies: keep crawlers out entirely.
+      response = new Response(betaRobotsTxt, { headers: { 'Content-Type': 'text/plain; charset=utf-8' } });
+    } else if (url.pathname === '/api' || url.pathname.startsWith('/api/')) {
       response = await handleApi(request, url, waitUntil);
     } else {
       response = await handleGuide(request, url, env) ?? await env.ASSETS.fetch(request);

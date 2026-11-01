@@ -1,0 +1,25 @@
+# SteamCanvas: https://previewartwork.lannahirave.com
+#
+# Preview your real Steam profile before changing anything on Steam. Load any public
+# profile and try new artwork, showcases, avatar, avatar frame, background, theme and
+# level, then export the showcase images (and a full preview) as a ZIP.
+#
+# What this version supports:
+# - Artwork, Featured Artwork, Screenshot and Workshop showcases (Workshop as 1x5, 2x5
+#   or 3x5), split from one image or placed as ready-made panels, GIFs included.
+# - Steam Artwork Studio integration (https://artworkstudio.lannahirave.com): GIFs you
+#   convert there are saved to its Library in your browser and can be placed into a
+#   showcase here, or sent straight over with "Preview on my Steam profile".
+# - Community Market and Points Shop backgrounds, avatar frames and profile themes.
+# - Drafts saved in your browser, so a reload restores your session.
+# - No ads, no account, nothing is changed on Steam.
+#
+# SteamCanvas is by dumbapplee (https://github.com/dumbapplee/steamcanvas), modified by
+# lannahirave (https://github.com/lannahirave/steamcanvas) to work with Steam Artwork
+# Studio. AGPL-3.0.
+#
+# /api/ is the profile and catalogue backend the app calls; it has nothing to index.
+
+User-agent: *
+Allow: /
+Disallow: /api/
