@@ -523,8 +523,10 @@ a { color: inherit; }
 @media (min-width: 651px) {
   .app-shell.has-profile { height: 100vh; height: 100dvh; min-height: 0; display: flex; flex-direction: column; overflow: hidden; padding-bottom: 0; }
   .app-shell.has-profile .topbar { flex: 0 0 72px; }
-  .app-shell.has-profile .workspace { min-height: 0; flex: 1; overflow: hidden; }
-  .app-shell.has-profile .control-panel { min-height: 0; overflow: visible; }
+  .app-shell.has-profile .workspace { min-height: 0; flex: 1; overflow: hidden; grid-template-rows: minmax(0, 1fr); }
+  /* The sidebar holds every editor section; scroll it on its own so the preview stays in view. */
+  .app-shell.has-profile .control-panel { min-height: 0; overflow-x: hidden; overflow-y: auto; overscroll-behavior: contain; scrollbar-width: thin; scrollbar-color: #514363 transparent; }
+  .app-shell.has-profile .control-panel > * { flex-shrink: 0; }
   .app-shell.has-profile .preview-area { min-height: 0; }
   .app-shell.has-profile .preview-stage { min-height: 0; }
   .app-shell.has-profile .steam-frame { min-height: 0; }
