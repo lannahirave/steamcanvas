@@ -1,6 +1,7 @@
 // Copyright (C) 2026 dumbapplee
 // Modified by lannahirave, 2026: fixed dev port so it does not clash with Steam Artwork Studio
-// (5173 and 5174), and the build records its git commit for the AGPL source link.
+// (5173 and 5174), and the build records which source the AGPL link points at: the git commit for
+// production, the beta branch for beta builds.
 // SPDX-License-Identifier: AGPL-3.0-only
 
 import { execSync } from 'node:child_process';
@@ -20,7 +21,8 @@ function sourceCommit(): string {
 export default defineConfig(({ mode }) => ({
   plugins: [react()],
   define: {
-    __SOURCE_COMMIT__: JSON.stringify(sourceCommit()),
+    // Beta deploys always come from the tip of origin/beta, so the branch is the source of that build.
+    __SOURCE_REF__: JSON.stringify(mode === 'beta' ? 'beta' : sourceCommit()),
   },
   server: {
     port: 5180,

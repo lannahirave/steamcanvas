@@ -23,7 +23,7 @@ import {
 
 const forkRepositoryUrl = 'https://github.com/lannahirave/steamcanvas';
 const upstreamRepositoryUrl = 'https://github.com/dumbapplee/steamcanvas';
-const sourceCodeUrl = __SOURCE_COMMIT__ ? `${forkRepositoryUrl}/tree/${__SOURCE_COMMIT__}` : forkRepositoryUrl;
+const sourceCodeUrl = __SOURCE_REF__ ? `${forkRepositoryUrl}/tree/${__SOURCE_REF__}` : forkRepositoryUrl;
 
 type HandoffState =
   | { status: 'none' }
