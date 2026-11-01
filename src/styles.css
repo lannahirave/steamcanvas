@@ -899,7 +899,7 @@ body { min-width: 360px; background: #0a1118; color: #e7edf3; }
 .panel-index span { color: #8ba0ab; }
 
 .preview-area { min-height: 0; overflow: hidden; border: 1px solid #263744; border-radius: 7px; background: #101921; }
-.preview-toolbar { min-height: 52px; border-bottom: 1px solid #263744; background: #101921; }
+.preview-toolbar { min-height: 52px; padding: 1rem; align-items: center; border-bottom: 1px solid #263744; background: #101921; }
 .preview-title { color: #b5c5ce; font-size: 9px; letter-spacing: .1em; }
 .live-dot { background: #637782; }
 .live-dot.is-live { background: #8de4a2; box-shadow: 0 0 10px rgb(141 228 162 / 42%); }
