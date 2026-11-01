@@ -1,6 +1,6 @@
 #!/usr/bin/env node
-// Deploys the SteamCanvas Worker from a clean, pushed commit. The footer's "Source" link points at
-// the built commit (`git rev-parse HEAD` in vite.config.ts), so that commit must be on GitHub.
+// Deploys the SteamCanvas Worker from a clean, pushed commit. The "Source" links point at the deployed
+// branch (`beta` or `main`, see vite.config.ts), so the build must match the tip of that branch on GitHub.
 //
 //   npm run release:beta            # branch `beta` -> https://previewartwork-beta.lannahirave.com
 //   npm run release:prod            # branch `main` -> https://previewartwork.lannahirave.com (asks first)

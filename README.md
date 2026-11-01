@@ -84,7 +84,7 @@ Deploys are manual, from your machine, with Wrangler logged in (`npx wrangler lo
 | `npm run release:beta` | `beta` | https://previewartwork-beta.lannahirave.com, paired with https://artworkstudio-beta.lannahirave.com | `steamcanvas-beta` (`env.beta`, noindex) |
 | `npm run release:prod` | `main` | https://previewartwork.lannahirave.com, paired with https://artworkstudio.lannahirave.com | `steamcanvas` |
 
-`scripts/deploy.mjs` refuses to deploy unless you are on the target branch with a clean working tree and HEAD matches the pushed `origin/<branch>`, because the footer's "Source" link points at the built commit. It then builds, deploys with the commit in the version message, and checks that the site answers. Production asks you to type `prod` first (`--yes` skips this). Work on `beta`, push, run `npm run release:beta`, check the beta site, then merge `beta` into `main`, push, and run `npm run release:prod`. `npm run deploy` and `npm run deploy:beta` still deploy without these checks.
+`scripts/deploy.mjs` refuses to deploy unless you are on the target branch with a clean working tree and HEAD matches the pushed `origin/<branch>`, because the "Source" links point at that branch (`beta` for beta, `main` for production). It then builds, deploys with the commit in the version message, and checks that the site answers. Production asks you to type `prod` first (`--yes` skips this). Work on `beta`, push, run `npm run release:beta`, check the beta site, then merge `beta` into `main`, push, and run `npm run release:prod`. `npm run deploy` and `npm run deploy:beta` still deploy without these checks.
 
 ### Optional catalog database
 

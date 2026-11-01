@@ -28,7 +28,8 @@ a { color: inherit; }
 .brand-mark { width: 31px; height: 31px; background: var(--green); display: grid; place-items: center; border-radius: 50%; }
 .brand-light { color: #818886; font-weight: 500; }
 .author-credit { color: #818886; font-size: 9px; font-weight: 500; text-decoration: none; }
-.author-credit:hover { color: #27332a; }
+.author-credit a { color: inherit; text-decoration: none; }
+.author-credit a:hover { color: #27332a; }
 .preview-title, .open-source, .eyebrow, .source-label, .panel-index, .empty-kicker, .empty-coordinate, .loading-cover, .draft-status { font-family: var(--mono); text-transform: uppercase; letter-spacing: .5px; }
 .topbar-actions { display: flex; align-items: center; gap: 18px; }
 .topbar-link { display: inline-flex; align-items: center; gap: 6px; color: #5c6663; font-size: 11px; text-decoration: none; }
@@ -805,7 +806,7 @@ body { min-width: 360px; background: #0a1118; color: #e7edf3; }
 .brand-mark { width: 34px; height: 34px; border-radius: 8px; background: #66c0f4; color: #0a1822; }
 .brand-light { color: #7c91a0; }
 .author-credit { margin-left: 4px; color: #71818c; font-size: 10px; }
-.author-credit:hover, .topbar-link:hover { color: #66c0f4; }
+.author-credit a:hover, .topbar-link:hover { color: #66c0f4; }
 .topbar-actions { gap: 9px; }
 .topbar-link { min-height: 34px; padding: 0 11px; border: 1px solid #273845; border-radius: 4px; color: #9aabb5; font-size: 11px; }
 .preview-title, .open-source, .eyebrow, .source-label, .panel-index, .empty-kicker, .empty-coordinate, .loading-cover, .draft-status { color: inherit; }
@@ -1047,7 +1048,7 @@ body { background: #100e16; color: #eeeaf6; }
 .topbar { border-color: #2a2535; }
 .brand-mark { background: #b59aff; color: #191321; }
 .brand-light { color: #b59aff; }
-.author-credit:hover, .topbar-link:hover { color: #c8b5ff; }
+.author-credit a:hover, .topbar-link:hover { color: #c8b5ff; }
 .topbar-link { border-color: #342d42; color: #aaa2b7; }
 
 .entry-screen::before { background-image: radial-gradient(ellipse at 76% 48%, rgb(104 78 157 / 11%), transparent 56%); }

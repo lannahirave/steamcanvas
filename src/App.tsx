@@ -60,7 +60,7 @@ function SiteFooter() {
   return (
     <footer className="site-footer">
       <p>
-        SteamCanvas by <a href="https://github.com/dumbapplee" target="_blank" rel="noreferrer">dumbapplee</a>, modified by <a href="https://github.com/lannahirave" target="_blank" rel="noreferrer">lannahirave</a> (October 2026) to work with <a href={ARTWORK_STUDIO_URL}>Steam Artwork Studio</a>.
+        SteamCanvas by <a href="https://github.com/dumbapplee" target="_blank" rel="noreferrer">dumbapplee</a>, modified by <a href="https://github.com/lannahirave" target="_blank" rel="noreferrer">lannahirave</a> to work with <a href={ARTWORK_STUDIO_URL}>Steam Artwork Studio</a>.
         {' '}Licensed under the <a href={`${sourceCodeUrl}/LICENSE`} target="_blank" rel="noreferrer">GNU AGPL v3.0</a>.
         {' '}<a href={sourceCodeUrl} target="_blank" rel="noreferrer">Source code of this version</a> · <a href={upstreamRepositoryUrl} target="_blank" rel="noreferrer">Original project</a>
       </p>
@@ -938,7 +938,7 @@ ${JSON.stringify(draft)}`;
             <span className="brand-mark"><PanelsTopLeft size={18} strokeWidth={2.1} /></span>
             <span>steam<span className="brand-light">canvas</span></span>
           </a>
-          <a className="author-credit" href="https://github.com/dumbapplee" target="_blank" rel="noreferrer">by dumbapplee</a>
+          <span className="author-credit">by <a href="https://github.com/dumbapplee" target="_blank" rel="noreferrer">dumbapplee</a> and <a href="https://github.com/lannahirave" target="_blank" rel="noreferrer">lannahirave</a></span>
         </div>
         <nav className="topbar-actions" aria-label="Site navigation">
           <a className="topbar-link" href="/guides/featured-artwork">Guides</a>

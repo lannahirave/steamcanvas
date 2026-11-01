@@ -168,8 +168,8 @@ npm install
 npm run deploy   # builds the frontend and runs wrangler deploy
 ```
 
-Deploy from a clean, pushed commit: the build records `git rev-parse HEAD`, and the footer's "Source
-code of this version" link points to that commit on GitHub.
+Deploy from a clean, pushed commit: the "Source" links in the header and footer point at the deployed
+branch on GitHub (`beta` for beta builds, `main` for production).
 
 The custom domain `previewartwork.lannahirave.com` is set in `wrangler.jsonc`. The Studio must be deployed
 with the `/bridge/` page and the matching `PROFILE_PREVIEW_ORIGIN` before the preview button works.
