@@ -953,14 +953,14 @@ export default function App() {
 
           {profile && (
             <>
-              <AvatarEditor sourceAvatar={profile.avatar} value={avatarEdit} onChange={setAvatarEdit} />
-              <AvatarFramePicker sourceAvatar={avatarEdit.imageUrl || profile.avatar} sourceFrameImage={sourceAvatarFrameImage} value={avatarFrame} onChange={setAvatarFrame} />
-              <ProfileThemePicker value={profileTheme} onApply={setProfileTheme} />
-              <BackgroundPicker sourceBackgroundImage={sourceBackgroundImage} value={background} onChange={setBackground} />
               <section className="showcase-add-section" aria-label="Showcases">
                 <span className="source-label">Showcases</span>
                 <div className="showcase-add-slot" ref={setShowcaseAddTarget} />
               </section>
+              <AvatarEditor sourceAvatar={profile.avatar} value={avatarEdit} onChange={setAvatarEdit} />
+              <AvatarFramePicker sourceAvatar={avatarEdit.imageUrl || profile.avatar} sourceFrameImage={sourceAvatarFrameImage} value={avatarFrame} onChange={setAvatarFrame} />
+              <ProfileThemePicker value={profileTheme} onApply={setProfileTheme} />
+              <BackgroundPicker sourceBackgroundImage={sourceBackgroundImage} value={background} onChange={setBackground} />
             </>
           )}
 

@@ -280,8 +280,8 @@ a { color: inherit; }
 }
 .avatar-frame-dialog .background-search { margin-top: 15px; }
 .background-picker { margin-top: 25px; padding-top: 17px; border-top: 1px solid var(--line); }
-.showcase-add-section { margin-top: 8px; padding-top: 7px; border-top: 1px solid var(--line); }
-.showcase-add-section > .source-label { margin-bottom: 0; font-size: 8px; }
+.showcase-add-section { margin-top: 27px; padding-top: 18px; border-top: 1px solid var(--line); }
+.showcase-add-section > .source-label { margin-bottom: 0; }
 .showcase-add-slot { position: relative; z-index: 5; margin-top: 5px; }
 .showcase-trash-slot { position: absolute; right: 18px; bottom: 18px; z-index: 30; width: 54px; height: 54px; pointer-events: none; }
 .showcase-trash-control { position: relative; pointer-events: none; }
@@ -558,8 +558,7 @@ a { color: inherit; }
   .app-shell.has-profile .background-current-row { gap: 9px; margin: 8px 0 0; }
   .app-shell.has-profile .background-current-preview { width: 80px; height: 48px; }
   .app-shell.has-profile .background-selection, .app-shell.has-profile .background-error { margin-top: 5px; }
-  .app-shell.has-profile .showcase-add-section { margin-top: 6px; padding-top: 5px; }
-  .app-shell.has-profile .showcase-add-section > .source-label { font-size: 7px; }
+  .app-shell.has-profile .showcase-add-section { margin-top: 12px; padding-top: 9px; }
   .app-shell.has-profile .showcase-add-slot { margin-top: 5px; }
   .app-shell.has-profile .privacy-note { padding-bottom: 12px; font-size: 10px; }
 }
@@ -584,8 +583,7 @@ a { color: inherit; }
   .app-shell.has-profile .background-picker { margin-top: 9px; padding-top: 6px; }
   .app-shell.has-profile .background-current-row { margin-top: 5px; }
   .app-shell.has-profile .background-current-preview { width: 68px; height: 40px; }
-  .app-shell.has-profile .showcase-add-section { margin-top: 4px; padding-top: 4px; }
-  .app-shell.has-profile .showcase-add-section > .source-label { font-size: 7px; }
+  .app-shell.has-profile .showcase-add-section { margin-top: 8px; padding-top: 6px; }
   .app-shell.has-profile .showcase-add-slot { margin-top: 3px; }
   .app-shell.has-profile .privacy-note { padding-bottom: 6px; font-size: 9px; }
 }
@@ -612,8 +610,7 @@ a { color: inherit; }
   .app-shell.has-profile .background-picker { margin-top: 7px; padding-top: 4px; }
   .app-shell.has-profile .background-current-row { margin-top: 4px; }
   .app-shell.has-profile .background-current-preview { width: 58px; height: 34px; }
-  .app-shell.has-profile .showcase-add-section { margin-top: 3px; padding-top: 3px; }
-  .app-shell.has-profile .showcase-add-section > .source-label { font-size: 7px; }
+  .app-shell.has-profile .showcase-add-section { margin-top: 6px; padding-top: 4px; }
   .app-shell.has-profile .showcase-add-slot { margin-top: 2px; }
   .app-shell.has-profile .privacy-note { padding-bottom: 0; font-size: 8px; line-height: 1.3; }
 }
@@ -688,7 +685,7 @@ a { color: inherit; }
   .workspace { min-height: auto; display: flex; flex-direction: column; gap: 20px; padding-top: 20px; }
   .control-panel { min-height: 0; padding-top: 5px; }
   .source-block { margin-top: 22px; }
-  .avatar-editor { margin-top: 21px; }
+  .avatar-editor, .showcase-add-section { margin-top: 21px; }
   .avatar-frame-picker { margin-top: 19px; }
   .crop-dialog-content { padding: 16px; }
   .crop-instruction { font-size: 11px; }
