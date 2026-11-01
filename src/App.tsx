@@ -296,6 +296,55 @@ async function writeSessionDraft(sessionId: string, draft: ProjectDraft): Promis
   });
 }
 
+// Autosave diagnostics. On in dev; elsewhere run localStorage.setItem('steamcanvas:debugAutosave', '1') and reload.
+const autosaveDebug = (() => {
+  try {
+    return import.meta.env.DEV || globalThis.localStorage?.getItem('steamcanvas:debugAutosave') === '1';
+  } catch {
+    return false;
+  }
+})();
+
+function describeNode(node: Node | null): string {
+  if (!node) return '(null)';
+  if (!(node instanceof Element) && node.nodeType !== Node.ELEMENT_NODE) return node.nodeName;
+  const element = node as Element;
+  const classes = [...element.classList].slice(0, 3).map((name) => `.${name}`).join('');
+  const controls = element.closest('[data-steamcanvas-showcase-controls]');
+  return `${element.tagName.toLowerCase()}${element.id ? `#${element.id}` : ''}${classes}${controls ? ` [in controls host "${controls.getAttribute('data-steamcanvas-showcase-controls')}"]` : ''}`;
+}
+
+function describeMutation(record: MutationRecord): string {
+  if (record.type === 'attributes') {
+    const now = (record.target as Element).getAttribute?.(record.attributeName || '') ?? null;
+    const clip = (value: string | null) => (value && value.length > 80 ? `${value.slice(0, 80)}…` : value);
+    return `attr ${record.attributeName} on ${describeNode(record.target)}: ${JSON.stringify(clip(record.oldValue))} -> ${JSON.stringify(clip(now))}`;
+  }
+  if (record.type === 'childList') {
+    const names = (nodes: NodeList) => [...nodes].map(describeNode).join(', ');
+    return `childList on ${describeNode(record.target)}: +[${names(record.addedNodes)}] -[${names(record.removedNodes)}]`;
+  }
+  return `characterData on ${describeNode(record.target.parentNode)}`;
+}
+
+/** Mutations that cannot change the saved draft: the editor's overlay hosts and the attributes serialization strips. */
+const editorOnlyAttributes = new Set(['data-steamcanvas-showcase-controls', 'data-steamcanvas-showcase-id', 'data-steamcanvas-draggable', 'data-steamcanvas-dragging']);
+function isEditorOnlyNode(node: Node): boolean {
+  return node instanceof Element || node.nodeType === Node.ELEMENT_NODE
+    ? !!(node as Element).closest('[data-steamcanvas-showcase-controls]')
+    : !!node.parentElement?.closest('[data-steamcanvas-showcase-controls]');
+}
+function isEditorOnlyMutation(record: MutationRecord): boolean {
+  if (isEditorOnlyNode(record.target)) return true;
+  if (record.type === 'attributes') return editorOnlyAttributes.has(record.attributeName || '');
+  if (record.type === 'childList') {
+    const nodes = [...record.addedNodes, ...record.removedNodes];
+    // Removed nodes are detached, so check the marker attribute directly.
+    return nodes.length > 0 && nodes.every((node) => (node as Element).hasAttribute?.('data-steamcanvas-showcase-controls'));
+  }
+  return false;
+}
+
 function serializeShowcaseArea(document: Document): string {
   const area = document.querySelector<HTMLElement>('.profile_leftcol > .profile_customization_area');
   if (!area) return '';
@@ -393,6 +442,11 @@ export default function App() {
   const [handoff, setHandoff] = useState<HandoffState>(() => (isStudioId(readUrlParam('studio')) ? { status: 'loading' } : { status: 'none' }));
   // Identifies this editing session in the URL (?session=) and in local storage, so a reload restores it.
   const sessionIdRef = useRef<string | null>(null);
+  // Autosave diagnostics (see autosaveDebug).
+  // Last draft written (session id + JSON), so saves that would write the same thing are skipped.
+  const lastSavedKeyRef = useRef<string | null>(null);
+  const autosaveCountRef = useRef(0);
+  const prevAutosaveDepsRef = useRef<Record<string, unknown> | null>(null);
   const previewFrame = useRef<HTMLIFrameElement>(null);
   const changelogDialog = useRef<HTMLDialogElement>(null);
   const exportAssetsRef = useRef<(() => Promise<void>) | null>(null);
@@ -761,18 +815,47 @@ export default function App() {
   useEffect(() => {
     if (!profile || !previewLoaded || !showcaseDocument) return;
     let timer: ReturnType<typeof globalThis.setTimeout>;
-    const saveDraft = () => {
+    // Diagnostics: why each save was scheduled, collected until the debounced save runs.
+    let pendingReasons: string[] = [];
+    let pendingMutationCount = 0;
+    const saveDraft = (reason?: string) => {
+      if (autosaveDebug && reason) pendingReasons.push(reason);
       globalThis.clearTimeout(timer);
       timer = globalThis.setTimeout(() => {
         try {
           const sessionId = sessionIdRef.current;
           if (!sessionId) return;
+          const serializeStart = performance.now();
           const draft = createProjectDraft(showcaseDocument);
+          // Only the serialized draft matters: skip the write (and the status flicker) when it is what we saved last.
+          const key = `${sessionId}
+${JSON.stringify(draft)}`;
+          const unchanged = key === lastSavedKeyRef.current;
+          const serializeMs = performance.now() - serializeStart;
+          if (autosaveDebug) {
+            console.groupCollapsed(
+              `[autosave] save #${++autosaveCountRef.current}: ${pendingMutationCount} mutation(s), html ${(draft.showcaseAreaHtml.length / 1024).toFixed(1)} KB, serialize ${serializeMs.toFixed(1)} ms${unchanged ? ' — draft unchanged, write skipped' : ''}`,
+            );
+            const counts = new Map<string, number>();
+            for (const line of pendingReasons) counts.set(line, (counts.get(line) || 0) + 1);
+            for (const [line, count] of [...counts].slice(0, 40)) console.log(count > 1 ? `${count}× ${line}` : line);
+            if (counts.size > 40) console.log(`…and ${counts.size - 40} more distinct reasons`);
+            console.groupEnd();
+          }
+          pendingReasons = [];
+          pendingMutationCount = 0;
+          if (unchanged) return;
+          lastSavedKeyRef.current = key;
           setProjectStatus('Saving draft');
+          const writeStart = performance.now();
           void writeSessionDraft(sessionId, draft).then(() => {
+            if (autosaveDebug) console.log(`[autosave] IndexedDB write ${(performance.now() - writeStart).toFixed(1)} ms`);
             setSavedDraft({ sessionId, draft });
             setProjectStatus('Draft saved locally');
-          }).catch(() => setProjectStatus('Autosave failed'));
+          }).catch(() => {
+            if (lastSavedKeyRef.current === key) lastSavedKeyRef.current = null;
+            setProjectStatus('Autosave failed');
+          });
         } catch {
           setProjectStatus('Autosave failed');
         }
@@ -780,22 +863,40 @@ export default function App() {
     };
     let observedArea = showcaseDocument.querySelector<HTMLElement>('.profile_leftcol > .profile_customization_area');
     let observer: MutationObserver;
-    observer = new MutationObserver(() => {
+    observer = new MutationObserver((allRecords) => {
+      // The editor's own overlay (hover outline, buttons) lives inside the area but is never saved.
+      const records = allRecords.filter((record) => !isEditorOnlyMutation(record));
+      if (autosaveDebug && records.length < allRecords.length) {
+        console.debug(`[autosave] ignored ${allRecords.length - records.length} editor-overlay mutation(s)`);
+      }
+      if (!records.length) return;
+      if (autosaveDebug) {
+        pendingMutationCount += records.length;
+        for (const record of records) pendingReasons.push(describeMutation(record));
+      }
       if (!observedArea) {
         observedArea = showcaseDocument.querySelector<HTMLElement>('.profile_leftcol > .profile_customization_area');
         if (observedArea) {
           observer.disconnect();
-          observer.observe(observedArea, { subtree: true, childList: true, attributes: true, characterData: true });
+          observer.observe(observedArea, { subtree: true, childList: true, attributes: true, characterData: true, attributeOldValue: autosaveDebug });
         }
       }
       saveDraft();
     });
     if (observedArea) {
-      observer.observe(observedArea, { subtree: true, childList: true, attributes: true, characterData: true });
+      observer.observe(observedArea, { subtree: true, childList: true, attributes: true, characterData: true, attributeOldValue: autosaveDebug });
     } else {
       observer.observe(showcaseDocument.documentElement, { subtree: true, childList: true });
     }
-    saveDraft();
+    if (autosaveDebug) {
+      const deps = { profile, previewLoaded, showcaseDocument, avatarEdit, avatarFrame, background, profileTheme, previewLevel, removedShowcases };
+      const previous = prevAutosaveDepsRef.current;
+      const changed = previous ? Object.keys(deps).filter((key) => !Object.is(deps[key as keyof typeof deps], previous[key])) : ['(first run)'];
+      prevAutosaveDepsRef.current = deps;
+      saveDraft(`effect re-run, changed deps: ${changed.join(', ') || '(none)'}`);
+    } else {
+      saveDraft();
+    }
     return () => {
       globalThis.clearTimeout(timer);
       observer.disconnect();
