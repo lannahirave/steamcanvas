@@ -785,7 +785,7 @@ export default function App() {
           <button className="topbar-link changelog-trigger" type="button" aria-label="Open changelog" aria-haspopup="dialog" onClick={() => changelogDialog.current?.showModal()}><History size={15} /><span>Changelog</span></button>
           <a className="topbar-link" href={ARTWORK_STUDIO_URL}><Images size={15} /> Artwork Studio</a>
           <a className="topbar-link" href={sourceCodeUrl} target="_blank" rel="noreferrer"><Github size={15} /> Source <ExternalLink size={12} /></a>
-          <a className="topbar-link" href="https://buymeacoffee.com/migueelss" target="_blank" rel="noreferrer"><Coffee size={15} /> Support me <ExternalLink size={12} /></a>
+          <a className="topbar-link" href="https://buymeacoffee.com/migueelss" target="_blank" rel="noreferrer"><Coffee size={15} /> Support dumbapplee <ExternalLink size={12} /></a>
         </nav>
       </header>
 

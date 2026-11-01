@@ -151,7 +151,7 @@ local development too.
 **Clean-up:**
 
 - The AdSense script in `index.html` is removed. It carries upstream's publisher ID.
-- The "Support me" link to upstream's Buy Me a Coffee is kept, as credit to the original author.
+- The link to upstream's Buy Me a Coffee is kept as credit to the original author, relabelled "Support dumbapplee" so it is clear who it supports.
 - The page has a CSP. It allows `steamcommunity.com`, `*.steamstatic.com`, `*.steamusercontent.com`,
   `*.akamaihd.net`, Google Fonts (which upstream already loads), and `blob:`/`data:` images, plus the Studio's origin in `frame-src`. The profile
   preview is a `srcdoc` iframe, which inherits this CSP, so `base-uri` also allows `steamcommunity.com`.
