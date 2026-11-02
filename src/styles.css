@@ -1125,6 +1125,8 @@ body { background: #100e16; color: #eeeaf6; }
 }
 .app-shell.has-profile .control-panel { padding: 18px 5px 14px 0; border: 0; border-radius: 0; background: transparent; }
 .app-shell.has-profile .preview-toolbar-actions { margin-left: auto; }
+.app-shell.has-profile .preview-area { border: 0; border-radius: 0; background: transparent; }
+.app-shell.has-profile .preview-toolbar { border-bottom: 0; background: transparent; }
 .project-action.project-reset-action {
   min-height: 32px;
   padding-inline: 11px;
