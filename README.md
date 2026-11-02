@@ -1,5 +1,7 @@
 <div align="center">
 
+<img alt="SteamCanvas banner" src="banner.png">
+
 # SteamCanvas
 
 ### Your Steam profile. Your style. Your call.
@@ -24,6 +26,8 @@ Preview profile ideas, tune the details, and shape your showcases — all before
 SteamCanvas is a local-first editor for experimenting with **public Steam profiles**. Load a profile, try a new look, arrange its showcases, and export the artwork or a portable HTML preview when you are happy with it.
 
 > **A safe space to experiment:** SteamCanvas previews changes in your browser. It does not sign in to Steam or edit your Steam account.
+
+> **Disclaimer:** SteamCanvas is an unofficial, community-made project. It is not affiliated with, endorsed by, sponsored by, or approved by Valve Corporation or Steam. "Steam" and related names and logos are trademarks of Valve Corporation and are used here only to describe compatibility.
 
 ## ✨ The workshop
 
