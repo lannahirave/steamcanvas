@@ -370,10 +370,13 @@ function classifyShowcase(element: HTMLElement): ShowcaseKind {
 	return element.querySelector('.screenshot_showcase_primary.single') ? 'featured-artwork' : 'artwork';
 }
 
+// Steam's like/comment icons live inside .screenshot_showcase_primary too, so they must be excluded from artwork images.
+const SHOWCASE_ARTWORK_IMAGE_SELECTOR = '.screenshot_showcase_primary img:not(.screenshot_showcase_staticon), .screenshot_showcase_smallscreenshot.showcase_slot img';
+
 function getShowcaseImages(element: HTMLElement, kind: ShowcaseKind): HTMLImageElement[] {
 	const selector = kind === 'workshop'
 		? '.myworkshop_showcase .workshop_showcase_item_image'
-		: '.screenshot_showcase_primary img, .screenshot_showcase_smallscreenshot.showcase_slot img';
+		: SHOWCASE_ARTWORK_IMAGE_SELECTOR;
 	return [...element.querySelectorAll<HTMLImageElement>(selector)];
 }
 
@@ -455,7 +458,7 @@ function fitFeaturedImage(image: HTMLImageElement): void {
 }
 
 function fitFeaturedArtwork(element: HTMLElement): void {
-	element.querySelectorAll<HTMLImageElement>('.screenshot_showcase_primary.single img').forEach(fitFeaturedImage);
+	element.querySelectorAll<HTMLImageElement>('.screenshot_showcase_primary.single img:not(.screenshot_showcase_staticon)').forEach(fitFeaturedImage);
 }
 
 function makeImageSlot(document: Document, className: string, maxWidth: number): HTMLElement {
@@ -1731,7 +1734,7 @@ export default function ShowcaseEditor({ previewDocument, profileUrl, profileNam
 		const panelCount = getMosaicPanelCount(entry.kind, savedLayout, savedWorkshopRows);
 		const currentImages = [...entry.element.querySelectorAll<HTMLImageElement>(entry.kind === 'workshop'
 			? '.myworkshop_showcase .workshop_showcase_item_image'
-			: '.screenshot_showcase_primary img, .screenshot_showcase_smallscreenshot.showcase_slot img')];
+			: SHOWCASE_ARTWORK_IMAGE_SELECTOR)];
 		setImageInputMode(publicSelectionIds.length ? 'public' : 'composite');
 		setEditorFiles(publicSelection);
 		setEditorPreview(publicSelectionIds.length ? [] : currentImages.slice(0, panelCount).map((image) => ({
