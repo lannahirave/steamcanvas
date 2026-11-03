@@ -1,8 +1,8 @@
 // Copyright (C) 2026 dumbapplee
 // SPDX-License-Identifier: AGPL-3.0-only
 
-import { useEffect, useState, type ReactNode } from 'react';
-import { ArrowUpRight, Check, Copy, FileArchive, Image, Monitor, PanelsTopLeft, Terminal, Upload } from 'lucide-react';
+import { useEffect, useRef, useState, type ReactNode } from 'react';
+import { ArrowUpRight, Check, Copy, FileArchive, Image, Monitor, Terminal, Upload, X } from 'lucide-react';
 
 type Guide = {
   slug: string;
@@ -95,10 +95,15 @@ const guides: Guide[] = [
   },
 ];
 
-export function getGuideForPath(pathname: string): Guide | undefined {
-  const slug = pathname.replace(/^\/guides\/|\/$/g, '');
-  return guides.find((guide) => guide.slug === slug);
+export function getGuideSlugForPath(pathname: string): string | null {
+  const slug = pathname.match(/^\/guides\/([^/]+)\/?$/)?.[1];
+  return guides.some((guide) => guide.slug === slug) ? slug ?? null : null;
 }
+
+const guideTabLabels: Record<string, string> = {
+  'featured-artwork': 'Featured Artwork',
+  'workshop-showcase': 'Workshop Showcase',
+};
 
 function Command({ children }: { children: string }) {
   const [copyState, setCopyState] = useState<'idle' | 'copied' | 'failed'>('idle');
@@ -150,38 +155,45 @@ function StepIcon({ index }: { index: number }) {
   return <Icon size={18} aria-hidden="true" />;
 }
 
-export default function GuidePage({ guide }: { guide: Guide }) {
+export default function GuideDialog({ slug, onSlugChange, onClose }: { slug: string | null; onSlugChange: (slug: string) => void; onClose: () => void }) {
+  const dialogRef = useRef<HTMLDialogElement>(null);
+  const guide = guides.find((item) => item.slug === slug) ?? guides[0];
+
   useEffect(() => {
-    document.title = `${guide.title} — SteamCanvas`;
-    const description = document.querySelector('meta[name="description"]');
-    description?.setAttribute('content', guide.description);
-  }, [guide]);
+    const dialog = dialogRef.current;
+    if (!dialog) return;
+    if (slug && !dialog.open) dialog.showModal();
+    if (!slug && dialog.open) dialog.close();
+  }, [slug]);
 
   return (
-    <main className="guide-shell">
-      <header className="topbar">
-        <div className="brand">
-          <a className="brand-home" href="/" aria-label="SteamCanvas home">
-            <span className="brand-mark"><PanelsTopLeft size={18} strokeWidth={2.1} /></span>
-            <span>steam<span className="brand-light">canvas</span></span>
-          </a>
-          <span className="author-credit">Steam profile guides</span>
-        </div>
-        <nav className="topbar-actions" aria-label="Site navigation">
-          <a className="topbar-link" href="/guides/featured-artwork">Featured Artwork</a>
-          <a className="topbar-link" href="/guides/workshop-showcase">Workshop Showcase</a>
-          <a className="topbar-link" href="/">Open editor <ArrowUpRight size={13} /></a>
-        </nav>
-      </header>
+    <dialog
+      ref={dialogRef}
+      className="guide-dialog"
+      aria-labelledby="guide-dialog-title"
+      onClose={onClose}
+      onClick={(event) => { if (event.target === event.currentTarget) dialogRef.current?.close(); }}
+    >
+      <div className="guide-dialog-content">
+        <header className="guide-dialog-header">
+          <nav className="guide-switch" aria-label="Guides">
+            {guides.map((item) => (
+              <button key={item.slug} type="button" aria-pressed={item.slug === guide.slug} onClick={() => onSlugChange(item.slug)}>
+                {guideTabLabels[item.slug] ?? item.slug}
+              </button>
+            ))}
+          </nav>
+          <button className="icon-button guide-close" type="button" aria-label="Close guide" onClick={() => dialogRef.current?.close()}><X size={17} /></button>
+        </header>
 
       <article className="guide-content">
         <header className="guide-hero">
           <div className="guide-hero-copy">
             <p className="guide-eyebrow">{guide.eyebrow}</p>
-            <h1>{guide.title}</h1>
+            <h1 id="guide-dialog-title">{guide.title}</h1>
             <p>{guide.intro}</p>
             <div className="guide-actions">
-              <a className="guide-cta" href="/">Open SteamCanvas <ArrowUpRight size={16} /></a>
+              <button className="guide-cta" type="button" onClick={() => dialogRef.current?.close()}>Back to the editor <ArrowUpRight size={16} /></button>
               <a className="guide-source-link" href={guide.sourceUrl} target="_blank" rel="noreferrer">Original community guide <ArrowUpRight size={14} /></a>
             </div>
           </div>
@@ -225,6 +237,7 @@ export default function GuidePage({ guide }: { guide: Guide }) {
           <p>Steam and Workshop behaviour can change; always check the live result before sharing it. See the <a href={guide.sourceUrl} target="_blank" rel="noreferrer">{guide.sourceLabel}</a> for the source workflow.</p>
         </footer>
       </article>
-    </main>
+      </div>
+    </dialog>
   );
 }

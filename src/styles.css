@@ -1378,20 +1378,24 @@ body { background: #100e16; color: #eeeaf6; }
   box-shadow: 0 0 0 2px rgb(167 139 250 / 18%);
 }
 
-.guide-shell { min-height: 100vh; padding: 0 clamp(20px, 4vw, 70px) 56px; background: #11101a; color: #eeeaf6; }
-.guide-shell .topbar { border-color: #342d42; }
-.guide-shell .brand-home { color: #f0edf6; }
-.guide-shell .brand-mark { background: #b59aff; color: #211c29; }
-.guide-shell .brand-light, .guide-shell .author-credit { color: #aaa2b7; }
-.guide-shell .topbar-link { border: 1px solid #40364e; border-radius: 4px; padding: 8px 10px; color: #c7bed4; }
-.guide-shell .topbar-link:hover { border-color: #a78bfa; color: #f3eff8; }
-.guide-content { width: min(100%, 1120px); margin: 0 auto; }
-.guide-hero { max-width: 840px; padding: clamp(42px, 6vw, 82px) 0 38px; }
+.guide-dialog { width: min(1120px, calc(100vw - 32px)); max-width: none; max-height: calc(100dvh - 32px); padding: 0; overflow: auto; border: 1px solid #40364e; border-radius: 7px; background: #11101a; color: #eeeaf6; box-shadow: 0 24px 90px rgb(0 0 0 / 48%); }
+.guide-dialog::backdrop { background: rgb(2 7 11 / 82%); backdrop-filter: blur(5px); }
+.guide-dialog-content { padding: 0 clamp(20px, 3vw, 40px) 30px; }
+.guide-dialog-header { position: sticky; top: 0; z-index: 1; display: flex; align-items: center; justify-content: space-between; gap: 16px; padding: 18px 0; background: #11101a; border-bottom: 1px solid #342d42; }
+.guide-switch { display: flex; flex-wrap: wrap; gap: 6px; }
+.guide-switch button { padding: 8px 11px; border: 1px solid #40364e; border-radius: 4px; background: transparent; color: #c7bed4; font: 11px var(--mono); cursor: pointer; }
+.guide-switch button:hover { border-color: #a78bfa; color: #f3eff8; }
+.guide-switch button[aria-pressed='true'] { border-color: #b59aff; background: #2a2236; color: #f3eff8; }
+.guide-close { flex: 0 0 auto; border-color: #40364e; background: transparent; color: #c7bed4; }
+.guide-close:hover { border-color: #a78bfa; color: #f3eff8; }
+.topbar-link.guide-trigger { appearance: none; background: transparent; cursor: pointer; font-family: inherit; }
+.guide-content { width: 100%; }
+.guide-hero { max-width: 840px; padding: 30px 0 28px; }
 .guide-eyebrow, .guide-section-label { margin: 0; color: #b59aff; font: 10px var(--mono); letter-spacing: .12em; }
 .guide-hero h1 { max-width: 800px; margin: 13px 0 13px; color: #f6f1fa; font-size: clamp(34px, 4.5vw, 58px); line-height: 1.02; letter-spacing: -.045em; }
 .guide-hero > p:last-of-type { max-width: 750px; margin: 0; color: #b7afc1; font-size: 15px; line-height: 1.65; }
 .guide-actions { display: flex; align-items: center; flex-wrap: wrap; gap: 16px; margin-top: 23px; }
-.guide-cta { display: inline-flex; align-items: center; gap: 8px; padding: 11px 14px; background: #b59aff; color: #211c29; font-size: 12px; font-weight: 700; text-decoration: none; }
+.guide-cta { display: inline-flex; align-items: center; gap: 8px; padding: 11px 14px; border: 0; background: #b59aff; color: #211c29; font: inherit; font-size: 12px; font-weight: 700; text-decoration: none; cursor: pointer; }
 .guide-cta:hover { background: #cbb7ff; }
 .guide-source-link { display: inline-flex; align-items: center; gap: 5px; color: #bdb2ce; font-size: 12px; text-decoration: none; }
 .guide-source-link:hover { color: #ded3ff; }
@@ -1464,12 +1468,10 @@ body { background: #100e16; color: #eeeaf6; }
 .guide-steps h3 { margin: 5px 0 9px; font-size: 18px; }
 .guide-step-body { font-size: 14px; }
 @media (max-width: 650px) {
-  .guide-shell { padding-inline: 18px; }
-  .guide-shell .topbar { align-items: flex-start; height: auto; gap: 14px; padding: 16px 0; }
-  .guide-shell .brand { padding-top: 3px; }
-  .guide-shell .author-credit { display: none; }
-  .guide-shell .topbar-actions { justify-content: flex-end; flex-wrap: wrap; gap: 5px; }
-  .guide-shell .topbar-link { padding: 7px; font-size: 9px; }
+  .guide-dialog { width: calc(100vw - 20px); max-height: calc(100dvh - 20px); }
+  .guide-dialog-content { padding-inline: 18px; }
+  .guide-dialog-header { flex-wrap: wrap; }
+  .guide-switch button { padding: 7px; font-size: 9px; }
   .guide-hero { padding: 48px 0 30px; }
   .guide-workspace { grid-template-columns: 1fr; gap: 18px; }
   .guide-sidebar { position: static; padding: 18px; }

@@ -10,7 +10,7 @@ import AvatarFramePicker, { type SteamAvatarFrame } from './components/AvatarFra
 import BackgroundPicker, { type ProfileBackgroundSize, type SteamBackground } from './components/BackgroundPicker';
 import ProfileThemePicker, { type AppliedProfileTheme } from './components/ProfileThemePicker';
 import ShowcaseEditor, { type IncomingArtworkResult, type RemovedShowcase } from './components/ShowcaseEditor';
-import GuidePage, { getGuideForPath } from './components/GuidePage';
+import GuideDialog, { getGuideSlugForPath } from './components/GuidePage';
 import { ensureShowcaseArea } from './utils/showcaseArea';
 import {
   ARTWORK_STUDIO_URL,
@@ -250,6 +250,11 @@ function idbRequest<T>(request: IDBRequest<T>): Promise<T> {
   });
 }
 
+// Same as index.html. The Worker swaps these for a guide's title on /guides/<slug>, so they
+// are put back when that guide closes.
+const editorTitle = 'SteamCanvas — Steam profile preview for Steam Artwork Studio';
+const editorDescription = 'Preview your real Steam profile with new artwork, showcases, avatar, frame, background and theme before changing anything on Steam. Place GIFs from Steam Artwork Studio straight into Artwork, Featured Artwork, Screenshot and Workshop showcases. Free, no ads, saves drafts in your browser.';
+
 function createSessionId(): string {
   const bytes = crypto.getRandomValues(new Uint8Array(12));
   return btoa(String.fromCharCode(...bytes)).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
@@ -457,6 +462,8 @@ export default function App() {
   const [sourceAvatarFrameImage, setSourceAvatarFrameImage] = useState('');
   const [showcaseDocument, setShowcaseDocument] = useState<Document | null>(null);
   const [showcaseAddTarget, setShowcaseAddTarget] = useState<HTMLDivElement | null>(null);
+  // /guides/<slug> links (bookmarks, search results) open the editor with that guide showing.
+  const [guideSlug, setGuideSlug] = useState<string | null>(() => getGuideSlugForPath(globalThis.location.pathname));
   const [showcaseTrashTarget, setShowcaseTrashTarget] = useState<HTMLDivElement | null>(null);
   const [removedShowcases, setRemovedShowcases] = useState<RemovedShowcase[]>([]);
   const [previewLoaded, setPreviewLoaded] = useState(false);
@@ -956,8 +963,23 @@ ${JSON.stringify(draft)}`;
     };
   }, [profile, previewLoaded, showcaseDocument, avatarEdit, avatarFrame, background, backgroundSize, profileTheme, previewLevel, removedShowcases]);
 
-  const guide = getGuideForPath(globalThis.location.pathname);
-  if (guide) return <GuidePage guide={guide} />;
+  // Keep the address bar on the guide's own URL while a guide that was opened from one is showing,
+  // and go back to the editor's URL when it closes, keeping the session in the query string.
+  function changeGuide(slug: string) {
+    setGuideSlug(slug);
+    if (getGuideSlugForPath(globalThis.location.pathname)) {
+      globalThis.history.replaceState(globalThis.history.state, '', `/guides/${slug}${globalThis.location.search}${globalThis.location.hash}`);
+    }
+  }
+
+  function closeGuide() {
+    setGuideSlug(null);
+    if (getGuideSlugForPath(globalThis.location.pathname)) {
+      globalThis.history.replaceState(globalThis.history.state, '', `/${globalThis.location.search}${globalThis.location.hash}`);
+      document.title = editorTitle;
+      document.querySelector('meta[name="description"]')?.setAttribute('content', editorDescription);
+    }
+  }
 
   return (
     <main className={`app-shell${profile ? ' has-profile' : ''}`}>
@@ -970,7 +992,7 @@ ${JSON.stringify(draft)}`;
           <span className="author-credit">by <a href="https://github.com/dumbapplee" target="_blank" rel="noreferrer">dumbapplee</a> and <a href="https://github.com/lannahirave" target="_blank" rel="noreferrer">lannahirave</a></span>
         </div>
         <nav className="topbar-actions" aria-label="Site navigation">
-          <a className="topbar-link" href="/guides/featured-artwork">Guides</a>
+          <button className="topbar-link guide-trigger" type="button" aria-haspopup="dialog" onClick={() => setGuideSlug('featured-artwork')}>Guides</button>
           <button className="topbar-link changelog-trigger" type="button" aria-label="Open changelog" aria-haspopup="dialog" onClick={() => {
             changelogDialog.current?.showModal();
             if (changelogSeen) return;
@@ -1235,6 +1257,7 @@ ${JSON.stringify(draft)}`;
           <footer className="changelog-footer">A retrospective of SteamCanvas updates, based on the project history.</footer>
         </section>
       </dialog>
+      <GuideDialog slug={guideSlug} onSlugChange={changeGuide} onClose={closeGuide} />
     </main>
   );
 }
