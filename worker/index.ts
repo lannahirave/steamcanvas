@@ -467,6 +467,13 @@ async function handleScreenshotImage(request: Request, waitUntil: WaitUntil): Pr
 // Same rules as server/index.ts: the showcase editor crops the profile background on a canvas,
 // so the image must come from this origin. Only Steam image hosts, at most three redirects
 // that also stay on those hosts, and at most 12 MB.
+// Transparent background works only on static (Market) backgrounds. Animated ones, which is every
+// Points Shop background, are excluded on purpose: they would mean cropping the video and building a
+// full-length GIF in the browser, too heavy for slower computers, and long backgrounds can't be kept
+// under Steam's 5 MB upload limit (Bruno Santos, Nov 2026).
+// Hosts beyond upstream's list: shared.steamstatic.com is where shared.cloudflare.steamstatic.com
+// images now redirect. community.fastly/akamai cover a profile's own static background if Steam
+// serves it from those CDNs. All are Steam's image servers.
 const steamBackgroundImageHosts = new Set([
   steamImageHost,
   'community.steamstatic.com',

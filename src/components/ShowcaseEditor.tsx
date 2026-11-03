@@ -2092,6 +2092,7 @@ export default function ShowcaseEditor({ previewDocument, profileUrl, profileNam
 		setShowcaseFiles(selected);
 	}
 
+	// Static backgrounds only; why animated ones are left out is in worker/index.ts above steamBackgroundImageHosts.
 	async function selectProfileBackgroundCrop() {
 		if (!activeEditor || backgroundIsAnimated) return;
 		const url = getBackgroundUrl(backgroundImageUrl);

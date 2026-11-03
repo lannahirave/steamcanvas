@@ -611,6 +611,13 @@ async function respondWithIndexedSearch(category: CatalogCategory, request: expr
 
 app.use(express.json({ limit: '4kb' }));
 
+// Transparent background works only on static (Market) backgrounds. Animated ones, which is every
+// Points Shop background, are excluded on purpose: they would mean cropping the video and building a
+// full-length GIF in the browser, too heavy for slower computers, and long backgrounds can't be kept
+// under Steam's 5 MB upload limit (Bruno Santos, Nov 2026).
+// Hosts beyond upstream's list: shared.steamstatic.com is where shared.cloudflare.steamstatic.com
+// images now redirect. community.fastly/akamai cover a profile's own static background if Steam
+// serves it from those CDNs. All are Steam's image servers.
 const steamBackgroundImageHosts = new Set([
   steamImageHost,
   'community.steamstatic.com',
