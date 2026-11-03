@@ -470,9 +470,12 @@ async function handleScreenshotImage(request: Request, waitUntil: WaitUntil): Pr
 const steamBackgroundImageHosts = new Set([
   steamImageHost,
   'community.steamstatic.com',
+  'community.fastly.steamstatic.com',
+  'community.akamai.steamstatic.com',
   'steamcdn-a.akamaihd.net',
   'cdn.akamai.steamstatic.com',
   'cdn.cloudflare.steamstatic.com',
+  'shared.steamstatic.com',
   'shared.fastly.steamstatic.com',
   'shared.akamai.steamstatic.com',
   'shared.cloudflare.steamstatic.com',
