@@ -22,8 +22,8 @@
   "workers_dev": false,
   "observability": { "enabled": true },
   "env": {
-    // Beta: `wrangler deploy --env beta`, deployed by CI from the beta branch. Vars and routes are
-    // not inherited, so they are repeated here.
+    // Beta: `npm run deploy:beta` (wrangler deploy --env beta). Vars and routes are not inherited,
+    // so they are repeated here.
     "beta": {
       "name": "steamcanvas-beta",
       "routes": [
