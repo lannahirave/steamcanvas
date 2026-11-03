@@ -464,6 +464,66 @@ async function handleScreenshotImage(request: Request, waitUntil: WaitUntil): Pr
   }
 }
 
+// Same rules as server/index.ts: the showcase editor crops the profile background on a canvas,
+// so the image must come from this origin. Only Steam image hosts, at most three redirects
+// that also stay on those hosts, and at most 12 MB.
+const steamBackgroundImageHosts = new Set([
+  steamImageHost,
+  'community.steamstatic.com',
+  'steamcdn-a.akamaihd.net',
+  'cdn.akamai.steamstatic.com',
+  'cdn.cloudflare.steamstatic.com',
+  'shared.fastly.steamstatic.com',
+  'shared.akamai.steamstatic.com',
+  'shared.cloudflare.steamstatic.com',
+]);
+const maxBackgroundImageBytes = 12 * 1024 * 1024;
+
+function isAllowedBackgroundImageUrl(url: URL): boolean {
+  return url.protocol === 'https:' && !url.username && !url.password
+    && steamBackgroundImageHosts.has(url.hostname) && !url.port;
+}
+
+async function handleProfileBackgroundImage(url: URL): Promise<Response> {
+  let target: URL;
+  try {
+    target = new URL(url.searchParams.get('url') || '');
+  } catch {
+    return json({ error: 'Invalid background image URL.' }, 400);
+  }
+  if (!isAllowedBackgroundImageUrl(target)) return json({ error: 'Only Steam background images can be loaded.' }, 400);
+
+  try {
+    let current = target;
+    let upstream: Response | undefined;
+    for (let redirects = 0; redirects <= 3; redirects++) {
+      upstream = await fetch(current.href, { redirect: 'manual', signal: AbortSignal.timeout(15000) });
+      if (upstream.status >= 200 && upstream.status < 300) break;
+      const location = upstream.status >= 300 && upstream.status < 400 ? upstream.headers.get('location') : null;
+      await upstream.body?.cancel();
+      upstream = undefined;
+      if (!location) throw new Error('Steam did not return the background image.');
+      current = new URL(location, current);
+      if (!isAllowedBackgroundImageUrl(current)) throw new Error('Redirected outside Steam image hosts.');
+    }
+    const contentType = (upstream?.headers.get('content-type') || '').split(';')[0].trim().toLowerCase();
+    if (!upstream || !/^image\/(png|jpe?g|webp|gif)$/.test(contentType)) {
+      await upstream?.body?.cancel();
+      return json({ error: 'Steam did not return a usable background image.' }, 502);
+    }
+    const declaredLength = Number(upstream.headers.get('content-length') || 0);
+    if (declaredLength > maxBackgroundImageBytes) {
+      await upstream.body?.cancel();
+      throw new Error('Background image is too large.');
+    }
+    const body = await upstream.arrayBuffer();
+    if (body.byteLength > maxBackgroundImageBytes) throw new Error('Background image is too large.');
+    return new Response(body, { status: 200, headers: { 'Content-Type': contentType, 'Cache-Control': 'public, max-age=86400' } });
+  } catch {
+    return json({ error: 'Could not load the profile background image from Steam.' }, 502);
+  }
+}
+
 async function handleApi(request: Request, url: URL, waitUntil: WaitUntil): Promise<Response> {
   const route = `${request.method} ${url.pathname}`;
   switch (route) {
@@ -471,6 +531,8 @@ async function handleApi(request: Request, url: URL, waitUntil: WaitUntil): Prom
       return json({ configured: false, error: 'The catalog index is not available in this deployment.' }, 503);
     case 'GET /api/profile-metrics':
       return json({ error: 'Profile metrics are not available in this deployment.' }, 503);
+    case 'GET /api/profile-background-image':
+      return handleProfileBackgroundImage(url);
     case 'GET /api/backgrounds':
       return handleBackgrounds(url, waitUntil);
     case 'GET /api/points-backgrounds':
