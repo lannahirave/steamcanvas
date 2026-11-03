@@ -7,7 +7,8 @@ import { createPortal } from 'react-dom';
 import { ensureShowcaseArea } from '../utils/showcaseArea';
 import type { IncomingArtwork } from '../utils/artworkStudioLibrary';
 import StudioLibraryPicker from './StudioLibraryPicker';
-import { Camera, ChevronLeft, ChevronRight, Download, Hammer, ImagePlus, LoaderCircle, Pencil, Plus, RotateCcw, Search, Star, Trash2, X } from 'lucide-react';
+import type { ProfileBackgroundSize } from './BackgroundPicker';
+import { Camera, ChevronLeft, ChevronRight, Download, GripHorizontal, Hammer, ImagePlus, LoaderCircle, Pencil, Plus, RotateCcw, Search, Star, Trash2, X } from 'lucide-react';
 import JSZip from 'jszip';
 import { decompressFrames, parseGIF, type ParsedFrame } from 'gifuct-js';
 import { applyPalette, GIFEncoder, quantize } from 'gifenc';
@@ -42,6 +43,8 @@ type ShowcaseEditorProps = {
 	previewDocument: Document | null;
 	profileUrl: string;
 	profileName: string;
+	backgroundImageUrl: string;
+	backgroundSize: ProfileBackgroundSize;
 	addControlTarget: HTMLElement | null;
 	trashControlTarget: HTMLElement | null;
 	removedShowcases: RemovedShowcase[];
@@ -85,6 +88,64 @@ type ArtworkLayout = 'main-side' | 'main-three-side';
 const SIDE_PANEL_GAP = 13;
 type WorkshopRows = 1 | 2 | 3;
 type WorkshopUploadTarget = { kind: 'row' | 'panels'; index: number };
+const DEFAULT_TRANSPARENT_HEIGHT = 284;
+
+function getShowcaseOutputWidth(entry: ShowcaseEntry): number {
+	return entry.kind === 'featured-artwork' || entry.kind === 'workshop' ? 630 : 606;
+}
+
+function getTransparentCropTarget(entry: ShowcaseEntry, row = 0): { left: number; top: number; scale: number } {
+	const images = getShowcaseImages(entry.element, entry.kind);
+	const image = entry.kind === 'workshop' ? images[row * 5] : images[0];
+	const slot = entry.kind === 'workshop'
+		? image?.closest<HTMLElement>('.workshop_showcase_mutiitem_ctn')
+		: image?.closest<HTMLElement>('.screenshot_showcase_primary');
+	const imageRect = image?.getBoundingClientRect();
+	const slotRect = slot?.getBoundingClientRect();
+	const rect = imageRect?.width && imageRect.height ? imageRect : slotRect;
+	if (!rect || !rect.width) throw new Error('Could not locate the showcase image area.');
+	const panelWidth = entry.kind === 'featured-artwork' ? 630 : entry.kind === 'workshop' ? 126 : 506;
+	return { left: rect.left, top: rect.top, scale: rect.width / panelWidth };
+}
+
+function getShowcaseDisplayWidth(entry: ShowcaseEntry): number {
+	return getTransparentCropTarget(entry).scale * getShowcaseOutputWidth(entry);
+}
+
+function applyTransparentCropPreviewHeight(entry: ShowcaseEntry, height: number): void {
+	const images = getShowcaseImages(entry.element, entry.kind);
+	if (!images.length) return;
+	const scale = getShowcaseDisplayWidth(entry) / getShowcaseOutputWidth(entry);
+	if (entry.kind === 'workshop') {
+		const panelHeight = height * scale;
+		images.forEach((image) => {
+			image.style.height = `${panelHeight}px`;
+			image.closest<HTMLAnchorElement>('a')?.style.setProperty('height', `${panelHeight}px`);
+		});
+		return;
+	}
+	if (entry.kind === 'featured-artwork') {
+		images[0].style.height = `${height * scale}px`;
+		images[0].closest<HTMLAnchorElement>('a')?.style.setProperty('height', `${height * scale}px`);
+		return;
+	}
+	const sideCount = Math.max(1, images.length - 1);
+	images[0].style.height = `${height * scale}px`;
+	const sideHeight = Math.max(1, (height - SIDE_PANEL_GAP * (sideCount - 1)) / sideCount) * scale;
+	images.slice(1).forEach((image) => {
+		image.style.height = `${sideHeight}px`;
+		image.closest<HTMLAnchorElement>('a')?.style.setProperty('height', `${sideHeight}px`);
+	});
+}
+type TransparentResizeGesture = {
+	entry: ShowcaseEntry;
+	pointerId: number;
+	startY: number;
+	startHeight: number;
+	outputWidth: number;
+	displayWidth: number;
+	handle: HTMLButtonElement;
+};
 
 function readImageFile(file: File): Promise<string> {
 	return new Promise((resolve, reject) => {
@@ -93,6 +154,200 @@ function readImageFile(file: File): Promise<string> {
 		reader.onerror = () => reject(new Error('Could not read image.'));
 		reader.readAsDataURL(file);
 	});
+}
+
+function getBackgroundUrl(value: string): string | null {
+	if (/^(https?:|data:|blob:|\/\/)/i.test(value.trim())) return value.trim();
+	const matches = [...value.matchAll(/url\((["']?)(.*?)\1\)/gi)];
+	return matches.at(-1)?.[2] || null;
+}
+
+function getBackgroundDimension(value: string, area: number, natural: number): number | null {
+	if (value === 'auto') return null;
+	if (value.endsWith('%')) return area * Number.parseFloat(value) / 100;
+	if (value.endsWith('px')) return Number.parseFloat(value);
+	return natural;
+}
+
+function getBackgroundPositionOffset(value: string, area: number, image: number, axis: 'x' | 'y'): number {
+	const normalized = value.toLowerCase();
+	const end = axis === 'x' ? 'right' : 'bottom';
+	if (normalized === 'center') return (area - image) / 2;
+	if (normalized === end) return area - image;
+	if (normalized === 'left' || normalized === 'top') return 0;
+	if (normalized.endsWith('%')) return (area - image) * Number.parseFloat(normalized) / 100;
+	const offset = Number.parseFloat(normalized);
+	return Number.isFinite(offset) ? (normalized.startsWith(end) ? area - image - offset : offset) : (area - image) / 2;
+}
+
+async function loadBackgroundImage(url: string): Promise<{ image: HTMLImageElement; cleanup: () => void }> {
+	let sourceUrl = url;
+	let cleanup = () => {};
+	if (/^https?:/i.test(url)) {
+		const response = await fetch(`/api/profile-background-image?${new URLSearchParams({ url })}`);
+		if (!response.ok) {
+			const result = await response.json().catch(() => null) as { error?: string } | null;
+			throw new Error(result?.error || 'Could not load the profile background image from Steam.');
+		}
+		sourceUrl = URL.createObjectURL(await response.blob());
+		cleanup = () => URL.revokeObjectURL(sourceUrl);
+	}
+	const image = new Image();
+	image.src = sourceUrl;
+	try {
+		await image.decode();
+	} catch {
+		cleanup();
+		throw new Error('Could not load the profile background image for cropping.');
+	}
+	if (!image.naturalWidth || !image.naturalHeight) {
+		cleanup();
+		throw new Error('The profile background image has no usable dimensions.');
+	}
+	return { image, cleanup };
+}
+
+async function createBackgroundCropFiles(
+	entry: ShowcaseEntry,
+	backgroundImageUrl: string,
+	height: number,
+	layout: ArtworkLayout,
+	workshopRows: WorkshopRows,
+): Promise<File[]> {
+	const backgroundSource = await loadBackgroundImage(backgroundImageUrl);
+	const image = backgroundSource.image;
+	try {
+	const document = entry.element.ownerDocument;
+	const profilePage = document.querySelector<HTMLElement>('.no_header.profile_page')
+		|| document.querySelector<HTMLElement>('.profile_page.full_width_background')
+		|| document.querySelector<HTMLElement>('.profile_page');
+	if (!profilePage) throw new Error('Could not locate the profile background area.');
+	const view = document.defaultView;
+	if (!view) throw new Error('Could not read the profile preview dimensions.');
+	const backgroundStyle = view.getComputedStyle(profilePage);
+	const backgroundSize = backgroundStyle.backgroundSize.split(/\s+/);
+	const areaRect = profilePage.getBoundingClientRect();
+	const backgroundAttachment = backgroundStyle.backgroundAttachment.split(',')[0].trim();
+	const backgroundOrigin = backgroundStyle.backgroundOrigin.split(',')[0].trim();
+	const borderLeft = backgroundOrigin === 'border-box' ? 0 : profilePage.clientLeft;
+	const borderTop = backgroundOrigin === 'border-box' ? 0 : profilePage.clientTop;
+	const areaLeft = backgroundAttachment === 'fixed' ? 0 : areaRect.left + borderLeft;
+	const areaTop = backgroundAttachment === 'fixed' ? 0 : areaRect.top + borderTop;
+	const areaWidth = backgroundAttachment === 'fixed'
+		? view.innerWidth
+		: backgroundOrigin === 'border-box' ? areaRect.width : profilePage.clientWidth || areaRect.width;
+	const areaHeight = backgroundAttachment === 'fixed'
+		? view.innerHeight
+		: backgroundOrigin === 'border-box' ? areaRect.height : profilePage.clientHeight || areaRect.height;
+	let backgroundWidth: number;
+	let backgroundHeight: number;
+	if (backgroundSize[0] === 'cover' || backgroundSize[0] === 'contain') {
+		const scale = backgroundSize[0] === 'cover'
+			? Math.max(areaWidth / image.naturalWidth, areaHeight / image.naturalHeight)
+			: Math.min(areaWidth / image.naturalWidth, areaHeight / image.naturalHeight);
+		backgroundWidth = image.naturalWidth * scale;
+		backgroundHeight = image.naturalHeight * scale;
+	} else {
+		const width = getBackgroundDimension(backgroundSize[0] || 'auto', areaWidth, image.naturalWidth);
+		const backgroundHeightValue = getBackgroundDimension(backgroundSize[1] || 'auto', areaHeight, image.naturalHeight);
+		if (width === null && backgroundHeightValue === null) {
+			backgroundWidth = image.naturalWidth;
+			backgroundHeight = image.naturalHeight;
+		} else if (width === null) {
+			backgroundHeight = backgroundHeightValue as number;
+			backgroundWidth = image.naturalWidth * backgroundHeight / image.naturalHeight;
+		} else if (backgroundHeightValue === null) {
+			backgroundWidth = width;
+			backgroundHeight = image.naturalHeight * backgroundWidth / image.naturalWidth;
+		} else {
+			backgroundWidth = width;
+			backgroundHeight = backgroundHeightValue;
+		}
+	}
+	const position = backgroundStyle.backgroundPosition.split(/\s+/);
+	const backgroundLeft = areaLeft + getBackgroundPositionOffset(position[0] || '50%', areaWidth, backgroundWidth, 'x');
+	const backgroundTop = areaTop + getBackgroundPositionOffset(position[1] || '50%', areaHeight, backgroundHeight, 'y');
+	const scaleX = backgroundWidth / image.naturalWidth;
+	const scaleY = backgroundHeight / image.naturalHeight;
+
+	type CropArea = { left: number; top: number; scale: number; outputWidth: number; outputHeight: number };
+	let cropAreas: CropArea[];
+	if (entry.kind === 'workshop') {
+		ensureWorkshopSlots(entry, workshopRows * 5);
+		setWorkshopShowcaseRows(entry, workshopRows);
+		cropAreas = Array.from({ length: workshopRows * 5 }, (_, index) => {
+			const target = getTransparentCropTarget(entry, Math.floor(index / 5));
+			const image = getShowcaseImages(entry.element, entry.kind)[index];
+			const panel = image?.getBoundingClientRect();
+			const slot = image?.closest<HTMLElement>('.workshop_showcase_mutiitem_ctn')?.getBoundingClientRect();
+			const left = panel?.width ? panel.left : slot?.left ?? target.left;
+			const top = panel?.height ? panel.top : slot?.top ?? target.top;
+			const scale = (panel?.width || slot?.width || 126 * target.scale) / 126;
+			return { left, top, scale, outputWidth: 126, outputHeight: height };
+		});
+	} else {
+		const panelCount = getMosaicPanelCount(entry.kind, layout);
+		if (hasTwoPanelImageEditor(entry.kind)) {
+			const rightColumn = entry.element.querySelector<HTMLElement>('.screenshot_showcase_rightcol');
+			if (rightColumn) {
+				const sideSlots = [...rightColumn.querySelectorAll<HTMLElement>('.screenshot_showcase_smallscreenshot.showcase_slot')];
+				for (let index = sideSlots.length; index < panelCount - 1; index += 1) {
+					rightColumn.insertBefore(makeImageSlot(document, 'screenshot_showcase_smallscreenshot showcase_slot', 100), rightColumn.querySelector('.screenshot_count'));
+				}
+			}
+		}
+		const images = getShowcaseImages(entry.element, entry.kind).slice(0, panelCount);
+		if (images.length < panelCount) throw new Error('Could not locate all showcase image slots.');
+		const sideCount = panelCount - 1;
+		cropAreas = images.map((image, index) => {
+			const outputWidth = index === 0 ? entry.kind === 'featured-artwork' ? 630 : 506 : 100;
+			const outputHeight = index === 0 || !sideCount
+				? height
+				: Math.max(1, (height - SIDE_PANEL_GAP * (sideCount - 1)) / sideCount);
+			const rect = image.getBoundingClientRect();
+			const slotRect = image.closest<HTMLElement>('.screenshot_showcase_primary, .screenshot_showcase_smallscreenshot')?.getBoundingClientRect();
+			const target = getTransparentCropTarget(entry);
+			const left = rect.width ? rect.left : slotRect?.left || target.left;
+			const top = rect.height ? rect.top : slotRect?.top || target.top;
+			const scale = (rect.width || slotRect?.width || outputWidth * target.scale) / outputWidth;
+			return { left, top, scale, outputWidth, outputHeight };
+		});
+	}
+
+	return await Promise.all(cropAreas.map(async ({ left, top, scale, outputWidth, outputHeight }, index) => {
+		if (!scale || !Number.isFinite(scale)) throw new Error('Could not determine the showcase image dimensions.');
+		const output = document.createElement('canvas');
+		output.width = outputWidth;
+		output.height = outputHeight;
+		const context = output.getContext('2d');
+		if (!context) throw new Error('Could not prepare the background crop.');
+		context.fillStyle = '#000';
+		context.fillRect(0, 0, outputWidth, outputHeight);
+		const sourceX = (left - backgroundLeft) / scaleX;
+		const sourceY = (top - backgroundTop) / scaleY;
+		const sourceWidth = outputWidth * scale / scaleX;
+		const sourceHeight = outputHeight * scale / scaleY;
+		const clippedLeft = Math.max(0, sourceX);
+		const clippedTop = Math.max(0, sourceY);
+		const clippedRight = Math.min(image.naturalWidth, sourceX + sourceWidth);
+		const clippedBottom = Math.min(image.naturalHeight, sourceY + sourceHeight);
+		if (clippedRight > clippedLeft && clippedBottom > clippedTop) {
+			const destinationX = (clippedLeft - sourceX) * outputWidth / sourceWidth;
+			const destinationY = (clippedTop - sourceY) * outputHeight / sourceHeight;
+			const destinationWidth = (clippedRight - clippedLeft) * outputWidth / sourceWidth;
+			const destinationHeight = (clippedBottom - clippedTop) * outputHeight / sourceHeight;
+			context.drawImage(image, clippedLeft, clippedTop, clippedRight - clippedLeft, clippedBottom - clippedTop, destinationX, destinationY, destinationWidth, destinationHeight);
+		}
+		const blob = await new Promise<Blob | null>((resolve) => output.toBlob(resolve, 'image/png'));
+		if (!blob) throw new Error('Could not encode the background crop.');
+		const name = entry.kind === 'workshop'
+			? `profile-background-row-${Math.floor(index / 5) + 1}-panel-${index % 5 + 1}.png`
+			: `profile-background-${index === 0 ? 'main' : `side-${index}`}.png`;
+		return new File([blob], name, { type: 'image/png' });
+	}));
+	} finally {
+		backgroundSource.cleanup();
+	}
 }
 
 function getImageExtension(file: File): string {
@@ -702,7 +957,7 @@ function sourceName(source: EditorSource): string {
 	return isPublicScreenshot(source) ? `Screenshot ${source.id}` : source.name;
 }
 
-export default function ShowcaseEditor({ previewDocument, profileUrl, profileName, addControlTarget, trashControlTarget, removedShowcases, onRemovedShowcasesChange, exportAssetsRef, incomingArtwork = null, onIncomingArtworkApplied }: ShowcaseEditorProps) {
+export default function ShowcaseEditor({ previewDocument, profileUrl, profileName, backgroundImageUrl, backgroundSize, addControlTarget, trashControlTarget, removedShowcases, onRemovedShowcasesChange, exportAssetsRef, incomingArtwork = null, onIncomingArtworkApplied }: ShowcaseEditorProps) {
 	const [entries, setEntries] = useState<ShowcaseEntry[]>([]);
 	// The document the current entries were read from, so receive mode waits for the scan to finish.
 	const [entriesDocument, setEntriesDocument] = useState<Document | null>(null);
@@ -712,6 +967,7 @@ export default function ShowcaseEditor({ previewDocument, profileUrl, profileNam
 	const [imageInputMode, setImageInputMode] = useState<ImageInputMode>('composite');
 	const [artworkLayout, setArtworkLayout] = useState<ArtworkLayout>('main-side');
 	const [workshopRows, setWorkshopRows] = useState<WorkshopRows>(1);
+	const [backgroundCropHeight, setBackgroundCropHeight] = useState(DEFAULT_TRANSPARENT_HEIGHT);
 	const [workshopRowFiles, setWorkshopRowFiles] = useState<Array<File | null>>(() => Array(3).fill(null));
 	const [workshopRowPreviews, setWorkshopRowPreviews] = useState<Array<string | null>>(() => Array(3).fill(null));
 	const [workshopPanelFiles, setWorkshopPanelFiles] = useState<Array<File | null>>(() => Array(15).fill(null));
@@ -740,6 +996,7 @@ export default function ShowcaseEditor({ previewDocument, profileUrl, profileNam
 	const [hoveredShowcaseId, setHoveredShowcaseId] = useState<string | null>(null);
 	const [exportingShowcaseId, setExportingShowcaseId] = useState<string | null>(null);
 	const [showcaseExportError, setShowcaseExportError] = useState<{ id: string; message: string } | null>(null);
+	const [backgroundResizingId, setBackgroundResizingId] = useState<string | null>(null);
 	const editorDialogRef = useRef<HTMLDialogElement>(null);
 	const workshopFileInputRef = useRef<HTMLInputElement>(null);
 	const workshopUploadTargetRef = useRef<WorkshopUploadTarget | null>(null);
@@ -747,6 +1004,10 @@ export default function ShowcaseEditor({ previewDocument, profileUrl, profileNam
 	const previewRequestId = useRef(0);
 	const dragTargetRef = useRef<{ id: string | null; after: boolean }>({ id: null, after: false });
 	const pointerGestureRef = useRef<ShowcasePointerGesture | null>(null);
+	const transparentResizeRef = useRef<TransparentResizeGesture | null>(null);
+	const backgroundResizeInProgressRef = useRef(false);
+	const backgroundImageUrlRef = useRef(backgroundImageUrl);
+	backgroundImageUrlRef.current = backgroundImageUrl;
 	const suppressClickRef = useRef(false);
 
 	function createOverlayHost(document: Document, parent: HTMLElement, name: string): HTMLElement {
@@ -768,7 +1029,7 @@ export default function ShowcaseEditor({ previewDocument, profileUrl, profileNam
 		}
 		const dragStyle = previewDocument!.createElement('style');
 		dragStyle.dataset.steamcanvasDragCursor = 'true';
-		dragStyle.textContent = '[data-steamcanvas-draggable="true"]:hover,[data-steamcanvas-draggable="true"]:hover *{cursor:grab!important}[data-steamcanvas-draggable="true"][data-steamcanvas-dragging="true"],[data-steamcanvas-draggable="true"][data-steamcanvas-dragging="true"] *{cursor:grabbing!important}[data-steamcanvas-draggable="true"]:hover [data-steamcanvas-showcase-controls],[data-steamcanvas-draggable="true"]:hover [data-steamcanvas-showcase-controls] *{cursor:pointer!important}';
+		dragStyle.textContent = '[data-steamcanvas-draggable="true"]:hover,[data-steamcanvas-draggable="true"]:hover *{cursor:grab!important}[data-steamcanvas-draggable="true"][data-steamcanvas-dragging="true"],[data-steamcanvas-draggable="true"][data-steamcanvas-dragging="true"] *{cursor:grabbing!important}[data-steamcanvas-draggable="true"]:hover [data-steamcanvas-showcase-controls],[data-steamcanvas-draggable="true"]:hover [data-steamcanvas-showcase-controls] *{cursor:pointer!important}[data-steamcanvas-showcase-controls="transparent-resize"]{position:absolute!important;bottom:4px!important;left:50%!important;z-index:2!important;min-width:76px!important;min-height:25px!important;display:flex!important;align-items:center!important;justify-content:center!important;gap:4px!important;padding:2px 7px!important;transform:translateX(-50%)!important;border:1px solid #d5f89b!important;border-radius:4px!important;background:rgba(25,34,24,.94)!important;color:#e4ffbd!important;box-shadow:0 2px 8px rgba(0,0,0,.45)!important;font:10px monospace!important;cursor:ns-resize!important;touch-action:none!important;pointer-events:auto!important}[data-steamcanvas-draggable="true"]:hover [data-steamcanvas-showcase-controls="transparent-resize"]{cursor:ns-resize!important}[data-steamcanvas-showcase-controls="transparent-resize"]:hover{background:#344621!important}[data-steamcanvas-showcase-controls="transparent-resize"]:disabled{opacity:.7!important;cursor:wait!important}[data-steamcanvas-showcase-controls="transparent-resize"]:focus-visible{outline:2px solid #fff!important;outline-offset:2px!important}';
 		previewDocument!.head.append(dragStyle);
 
 		const nextEntries = [...area.children]
@@ -998,6 +1259,18 @@ export default function ShowcaseEditor({ previewDocument, profileUrl, profileNam
 			if (pending) processPointerMove(pending);
 		};
 		const onPointerMove = (event: PointerEvent) => {
+			const resize = transparentResizeRef.current;
+			if (resize && resize.pointerId === event.pointerId) {
+				const height = Math.max(1, Math.round(
+					resize.startHeight + (event.clientY - resize.startY) * resize.outputWidth / resize.displayWidth,
+				));
+				resize.entry.element.dataset.steamcanvasTransparentHeight = String(height);
+				const heightLabel = resize.handle.querySelector<HTMLElement>('[data-transparent-height]');
+				if (heightLabel) heightLabel.textContent = `${height}px`;
+				applyTransparentCropPreviewHeight(resize.entry, height);
+				event.preventDefault();
+				return;
+			}
 			const gesture = pointerGestureRef.current;
 			if (!gesture || gesture.pointerId !== event.pointerId) return;
 			if (gesture.moved || Math.hypot(event.clientX - gesture.x, event.clientY - gesture.y) >= 7) event.preventDefault();
@@ -1011,12 +1284,26 @@ export default function ShowcaseEditor({ previewDocument, profileUrl, profileNam
 			}) || 0;
 		};
 		const onPointerUp = (event: PointerEvent) => {
+			const resize = transparentResizeRef.current;
+			if (resize && resize.pointerId === event.pointerId) {
+				transparentResizeRef.current = null;
+				const height = Number(resize.entry.element.dataset.steamcanvasTransparentHeight) || resize.startHeight;
+				if (height !== resize.startHeight) void resizeTransparentBackground(resize.entry, height, resize.startHeight);
+				return;
+			}
 			const gesture = pointerGestureRef.current;
 			if (!gesture || gesture.pointerId !== event.pointerId) return;
 			flushPendingPointerMove();
 			finishGesture(gesture, true);
 		};
 		const onPointerCancel = (event: PointerEvent) => {
+			const resize = transparentResizeRef.current;
+			if (resize && resize.pointerId === event.pointerId) {
+				transparentResizeRef.current = null;
+				resize.entry.element.dataset.steamcanvasTransparentHeight = String(resize.startHeight);
+				applyTransparentCropPreviewHeight(resize.entry, resize.startHeight);
+				return;
+			}
 			const gesture = pointerGestureRef.current;
 			if (gesture?.pointerId === event.pointerId) finishGesture(gesture, false);
 		};
@@ -1435,6 +1722,8 @@ export default function ShowcaseEditor({ previewDocument, profileUrl, profileNam
 		const savedWorkshopRows = getWorkshopShowcaseRows(entry);
 		setArtworkLayout(savedLayout);
 		setWorkshopRows(savedWorkshopRows);
+		setBackgroundCropHeight(Number(entry.element.dataset.steamcanvasTransparentHeight)
+			|| (entry.kind === 'workshop' ? 126 : DEFAULT_TRANSPARENT_HEIGHT));
 		setWorkshopRowFiles(Array(3).fill(null));
 		setWorkshopRowPreviews(Array(3).fill(null));
 		setWorkshopPanelFiles(Array(15).fill(null));
@@ -1799,7 +2088,100 @@ export default function ShowcaseEditor({ previewDocument, profileUrl, profileNam
 		setShowcaseFiles(selected);
 	}
 
-	async function applyWorkshopSelection(entry: ShowcaseEntry): Promise<boolean> {
+	async function selectProfileBackgroundCrop() {
+		if (!activeEditor) return;
+		const url = getBackgroundUrl(backgroundImageUrl);
+		if (!url) {
+			setEditorError('No static profile background image is available to crop.');
+			return;
+		}
+		setEditorLoading(true);
+		setEditorProgress('Cropping the profile background...');
+		setEditorError('');
+		try {
+			if (activeEditor.kind === 'workshop') {
+				ensureWorkshopSlots(activeEditor, workshopRows * 5);
+				setWorkshopShowcaseRows(activeEditor, workshopRows);
+			}
+			const files = await createBackgroundCropFiles(activeEditor, url, backgroundCropHeight, artworkLayout, workshopRows);
+			const applied = activeEditor.kind === 'workshop'
+				? await applyWorkshopSelection(activeEditor, files, workshopRows)
+				: await updateArtwork(activeEditor, files, hasTwoPanelImageEditor(activeEditor.kind) ? 'separate' : 'composite', artworkLayout, workshopRows);
+			if (!applied) return;
+			activeEditor.element.dataset.steamcanvasTransparent = 'true';
+			activeEditor.element.dataset.steamcanvasTransparentHeight = String(backgroundCropHeight);
+			activeEditor.element.dataset.steamcanvasTransparentLayout = artworkLayout;
+			activeEditor.element.dataset.steamcanvasTransparentRows = String(workshopRows);
+			applyTransparentCropPreviewHeight(activeEditor, backgroundCropHeight);
+			setEditorError('');
+			setShowcaseExportError(null);
+			setEditingId(null);
+		} catch (caught) {
+			setEditorError(caught instanceof Error ? caught.message : 'Could not crop the profile background.');
+		} finally {
+			setEditorProgress('');
+			setEditorLoading(false);
+		}
+	}
+
+	async function resizeTransparentBackground(entry: ShowcaseEntry, height: number, previousHeight: number): Promise<void> {
+		const url = getBackgroundUrl(backgroundImageUrlRef.current);
+		if (!url || backgroundResizeInProgressRef.current) return;
+		const layout = entry.element.dataset.steamcanvasTransparentLayout === 'main-three-side' ? 'main-three-side' : 'main-side';
+		const savedRows = Number(entry.element.dataset.steamcanvasTransparentRows);
+		const rows: WorkshopRows = savedRows === 2 || savedRows === 3 ? savedRows : 1;
+		backgroundResizeInProgressRef.current = true;
+		setBackgroundResizingId(entry.id);
+		setShowcaseExportError(null);
+		try {
+			const files = await createBackgroundCropFiles(entry, url, height, layout, rows);
+			const applied = entry.kind === 'workshop'
+				? await applyWorkshopSelection(entry, files, rows)
+				: await updateArtwork(entry, files, hasTwoPanelImageEditor(entry.kind) ? 'separate' : 'composite', layout, rows);
+			if (!applied) throw new Error('Could not update the transparent background artwork.');
+			entry.element.dataset.steamcanvasTransparentHeight = String(height);
+			applyTransparentCropPreviewHeight(entry, height);
+		} catch (caught) {
+			entry.element.dataset.steamcanvasTransparentHeight = String(previousHeight);
+			applyTransparentCropPreviewHeight(entry, previousHeight);
+			setShowcaseExportError({
+				id: entry.id,
+				message: caught instanceof Error ? caught.message : 'Could not resize the transparent background.',
+			});
+		} finally {
+			backgroundResizeInProgressRef.current = false;
+			setBackgroundResizingId(null);
+		}
+	}
+
+	useEffect(() => {
+		if (!previewDocument || !getBackgroundUrl(backgroundImageUrl)) return;
+		let cancelled = false;
+		const frame = globalThis.requestAnimationFrame(() => {
+			void (async () => {
+				for (const entry of entries) {
+					if (entry.element.dataset.steamcanvasTransparent !== 'true') continue;
+					const height = Number(entry.element.dataset.steamcanvasTransparentHeight);
+					if (!Number.isFinite(height) || height <= 0) continue;
+					while (backgroundResizeInProgressRef.current && !cancelled) {
+						await new Promise((resolve) => globalThis.setTimeout(resolve, 50));
+					}
+					if (cancelled) return;
+					await resizeTransparentBackground(entry, height, height);
+				}
+			})();
+		});
+		return () => {
+			cancelled = true;
+			globalThis.cancelAnimationFrame(frame);
+		};
+	}, [backgroundImageUrl, backgroundSize, entries.length, previewDocument]);
+
+	async function applyWorkshopSelection(
+		entry: ShowcaseEntry,
+		selectedPanelFiles = workshopPanelFiles,
+		rows: WorkshopRows = workshopRows,
+	): Promise<boolean> {
 		type WorkshopAsset = {
 			url: string;
 			exportUrl: string;
@@ -1810,7 +2192,7 @@ export default function ShowcaseEditor({ previewDocument, profileUrl, profileNam
 		const assets = new Map<number, WorkshopAsset>();
 		const animatedMosaicSources: NonNullable<ShowcaseEntry['mosaicSources']> = [];
 		try {
-			for (let row = 0; row < workshopRows; row += 1) {
+			for (let row = 0; row < rows; row += 1) {
 				const rowFile = workshopRowFiles[row];
 				if (rowFile) {
 					setEditorProgress(`Preparing row ${row + 1}...`);
@@ -1845,9 +2227,9 @@ export default function ShowcaseEditor({ previewDocument, profileUrl, profileNam
 				}
 				for (let panel = 0; panel < 5; panel += 1) {
 					const index = row * 5 + panel;
-					const file = workshopPanelFiles[index];
+					const file = selectedPanelFiles[index];
 					if (!file) continue;
-					setEditorProgress(`Preparing panel ${index + 1} of ${workshopRows * 5}...`);
+					setEditorProgress(`Preparing panel ${index + 1} of ${rows * 5}...`);
 					const url = await readImageFile(file);
 					const baseName = sourceName(file).replace(/\.[^.]+$/, '').replace(/[^\w.-]+/g, '-').slice(0, 80) || `workshop-panel-${index + 1}`;
 					assets.set(index, {
@@ -1858,7 +2240,7 @@ export default function ShowcaseEditor({ previewDocument, profileUrl, profileNam
 				}
 			}
 			if (!assets.size) return false;
-			ensureWorkshopSlots(entry, workshopRows * 5);
+			ensureWorkshopSlots(entry, rows * 5);
 			const images = getShowcaseImages(entry.element, entry.kind);
 			for (const [index, asset] of assets) {
 				const image = images[index];
@@ -1896,8 +2278,8 @@ export default function ShowcaseEditor({ previewDocument, profileUrl, profileNam
 					}
 				}
 			}
-			setWorkshopShowcaseRows(entry, workshopRows);
-			entry.element.dataset.steamcanvasWorkshopRows = String(workshopRows);
+			setWorkshopShowcaseRows(entry, rows);
+			entry.element.dataset.steamcanvasWorkshopRows = String(rows);
 			const animatedArtwork = [...assets.values()].find((asset) => asset.animatedArtwork)?.animatedArtwork;
 			setEntries((current) => current.map((item) => {
 				if (item.id !== entry.id) return item;
@@ -2322,7 +2704,7 @@ export default function ShowcaseEditor({ previewDocument, profileUrl, profileNam
 			: { src: editorPreview[index]?.src || '', width: 100, height: editorPanelCount === 4 ? Math.max(1, Math.round((screenshotPreviewHeight - 8) / 3)) : screenshotPreviewHeight }
 		: editorPreview[index] || (activeEditor?.kind === 'workshop'
 		? { src: '', width: 126, height: 56 }
-		: index === 0 ? { src: '', width: 506, height: 284 } : { src: '', width: 100, height: 56 });
+		: index === 0 ? { src: '', width: activeEditor?.kind === 'featured-artwork' ? 630 : 506, height: 284 } : { src: '', width: 100, height: 56 });
 	const previewSizes = Array.from({ length: editorPanelCount }, (_, index) => previewPanelSize(index));
 	const workshopRowWidths = Array.from({ length: workshopRows }, (_, row) => previewSizes.slice(row * 5, row * 5 + 5).reduce((sum, panel) => sum + panel.width, 0));
 	const workshopRowHeights = Array.from({ length: workshopRows }, (_, row) => Math.max(...previewSizes.slice(row * 5, row * 5 + 5).map((panel) => panel.height)));
@@ -2372,6 +2754,7 @@ export default function ShowcaseEditor({ previewDocument, profileUrl, profileNam
 	const renderOverlay = (entry: ShowcaseEntry, host: HTMLElement) => {
 		const canExport = !!getExportableEntry(entry, entries.findIndex((item) => item.id === entry.id));
 		const isExporting = exportingShowcaseId === entry.id || exportingShowcaseId === 'all';
+		const transparentHeight = Number(entry.element.dataset.steamcanvasTransparentHeight) || DEFAULT_TRANSPARENT_HEIGHT;
 		return createPortal(
 		<div className="showcase-overlay" style={{ position: 'absolute', inset: 0, pointerEvents: 'none', outline: dragTargetShowcaseId === entry.id ? '3px solid #c9ef73' : hoveredShowcaseId === entry.id ? '2px solid rgba(201,239,115,.9)' : undefined, outlineOffset: '-2px', background: dragTargetShowcaseId === entry.id ? 'rgba(196,243,106,.1)' : hoveredShowcaseId === entry.id ? 'rgba(196,243,106,.035)' : undefined, transition: 'outline-color .12s ease, background .12s ease' }}>
 			<div className="showcase-overlay-actions" style={{ position: 'absolute', top: '5px', right: '5px', display: 'flex', alignItems: 'center', gap: '6px', padding: '3px', borderRadius: '4px', background: 'rgba(12,17,21,.78)', backdropFilter: 'blur(4px)', pointerEvents: 'auto' }}>
@@ -2379,6 +2762,38 @@ export default function ShowcaseEditor({ previewDocument, profileUrl, profileNam
 				{canExport && <button type="button" style={{ ...buttonStyle, width: '30px', padding: 0, justifyContent: 'center' }} title={isExporting ? 'Preparing showcase ZIP...' : `Download ${entry.title} as ZIP`} aria-label={`Download ${entry.title} as ZIP`} disabled={!!exportingShowcaseId} onClick={() => void exportSingleShowcase(entry)}>{isExporting ? <LoaderCircle size={14} className="spin" /> : <Download size={14} />}</button>}
 				<button type="button" style={{ ...buttonStyle, width: '30px', padding: 0, justifyContent: 'center', color: '#ffc0b5' }} title={`Remove ${entry.title}`} aria-label={`Remove ${entry.title}`} onClick={() => { removeShowcase(entry); if (editingId === entry.id) setEditingId(null); }}><Trash2 size={14} /></button>
 			</div>
+			{entry.element.dataset.steamcanvasTransparent === 'true' && <button
+				className="showcase-transparent-resize"
+				type="button"
+				data-steamcanvas-showcase-controls="transparent-resize"
+				disabled={backgroundResizingId === entry.id}
+				title="Drag up or down to resize transparent background height"
+				aria-label={`Transparent background height ${transparentHeight} pixels. Drag up or down to resize.`}
+				onPointerDown={(event) => {
+					if (event.button !== 0 || backgroundResizingId) return;
+					event.preventDefault();
+					event.stopPropagation();
+					const handle = event.currentTarget;
+					const startHeight = Number(entry.element.dataset.steamcanvasTransparentHeight) || DEFAULT_TRANSPARENT_HEIGHT;
+					transparentResizeRef.current = {
+						entry,
+						pointerId: event.pointerId,
+						startY: event.clientY,
+						startHeight,
+						outputWidth: getShowcaseOutputWidth(entry),
+						displayWidth: Math.max(1, getShowcaseDisplayWidth(entry)),
+						handle,
+					};
+					try {
+						handle.setPointerCapture(event.pointerId);
+					} catch {
+						transparentResizeRef.current = null;
+					}
+				}}
+			>
+				{backgroundResizingId === entry.id ? <LoaderCircle size={14} className="spin" /> : <GripHorizontal size={15} />}
+				<span data-transparent-height>{transparentHeight}px</span>
+			</button>}
 			{showcaseExportError?.id === entry.id && <div role="alert" style={{ position: 'absolute', top: '42px', right: '5px', maxWidth: '220px', padding: '5px 7px', borderRadius: '3px', background: 'rgba(80,24,20,.94)', color: '#fff', font: '11px Arial,sans-serif', pointerEvents: 'auto' }}>{showcaseExportError.message}</div>}
 		</div>, host, entry?.id || 'showcase-add-controls');
 	};
@@ -2529,6 +2944,13 @@ export default function ShowcaseEditor({ previewDocument, profileUrl, profileNam
 								<button className={artworkLayout === 'main-side' ? 'is-active' : ''} type="button" aria-pressed={artworkLayout === 'main-side'} onClick={() => { setArtworkLayout('main-side'); setEditorFiles([]); setEditorPreview([]); setUploadButtonPreview(null); setEditorError(''); }}><span className="showcase-layout-icon is-two"><i /><i /></span><span className="showcase-layout-copy"><strong>Main + side</strong><small>2 panels</small></span></button>
 								<button className={artworkLayout === 'main-three-side' ? 'is-active' : ''} type="button" aria-pressed={artworkLayout === 'main-three-side'} onClick={() => { setArtworkLayout('main-three-side'); setEditorFiles([]); setEditorPreview([]); setUploadButtonPreview(null); setEditorError(''); }}><span className="showcase-layout-icon is-four"><i /><i /><i /><i /></span><span className="showcase-layout-copy"><strong>Main + 3 sides</strong><small>4 panels</small></span></button>
 							</div></div>}
+							<div className="showcase-editor-control-group">
+								<button className="avatar-upload-button showcase-editor-background-crop" type="button" disabled={editorLoading || !getBackgroundUrl(backgroundImageUrl)} onClick={() => void selectProfileBackgroundCrop()}>
+									{editorLoading ? <LoaderCircle size={14} className="spin" /> : <ImagePlus size={14} />}
+									{editorLoading ? 'Preparing...' : 'Transparent background'}
+								</button>
+								{!getBackgroundUrl(backgroundImageUrl) && <small className="showcase-background-crop-copy">Choose a static profile background first.</small>}
+							</div>
 							{activeEditor.kind === 'screenshot' && <div className={`showcase-public-picker ${publicScreenshotExpanded ? 'is-expanded' : ''}`}>
 								<div className="showcase-editor-label">PUBLIC SCREENSHOTS</div>
 								<p className="showcase-public-picker-copy">Choose up to {editorPanelCount} screenshots from this profile. They stay whole in the showcase slots.</p>

@@ -611,6 +611,68 @@ async function respondWithIndexedSearch(category: CatalogCategory, request: expr
 
 app.use(express.json({ limit: '4kb' }));
 
+const steamBackgroundImageHosts = new Set([
+  steamImageHost,
+  'community.steamstatic.com',
+  'steamcdn-a.akamaihd.net',
+  'cdn.akamai.steamstatic.com',
+  'cdn.cloudflare.steamstatic.com',
+  'shared.fastly.steamstatic.com',
+  'shared.akamai.steamstatic.com',
+  'shared.cloudflare.steamstatic.com',
+]);
+const maxBackgroundImageBytes = 12 * 1024 * 1024;
+
+function isAllowedBackgroundImageUrl(url: URL) {
+  return url.protocol === 'https:' && !url.username && !url.password
+    && steamBackgroundImageHosts.has(url.hostname) && !url.port;
+}
+
+app.get('/api/profile-background-image', async (request, response) => {
+  const rawUrl = typeof request.query.url === 'string' ? request.query.url : '';
+  let target: URL;
+  try {
+    target = new URL(rawUrl);
+  } catch {
+    response.status(400).json({ error: 'Invalid background image URL.' });
+    return;
+  }
+  if (!isAllowedBackgroundImageUrl(target)) {
+    response.status(400).json({ error: 'Only Steam background images can be loaded.' });
+    return;
+  }
+
+  try {
+    let current = target;
+    let upstream;
+    for (let redirects = 0; redirects <= 3; redirects++) {
+      upstream = await axios.get<ArrayBuffer>(current.href, {
+        responseType: 'arraybuffer',
+        timeout: 15000,
+        maxRedirects: 0,
+        maxContentLength: maxBackgroundImageBytes,
+        validateStatus: (status) => status >= 200 && status < 400,
+      });
+      if (upstream.status < 300) break;
+      const location = upstream.headers.location;
+      if (!location) throw new Error('Missing redirect location.');
+      current = new URL(location, current);
+      if (!isAllowedBackgroundImageUrl(current)) throw new Error('Redirected outside Steam image hosts.');
+      upstream = undefined;
+    }
+    const contentType = String(upstream?.headers['content-type'] || '').split(';')[0].trim().toLowerCase();
+    if (!upstream || !/^image\/(png|jpe?g|webp|gif)$/.test(contentType)) {
+      response.status(502).json({ error: 'Steam did not return a usable background image.' });
+      return;
+    }
+    response.setHeader('Content-Type', contentType);
+    response.setHeader('Cache-Control', 'public, max-age=86400');
+    response.send(Buffer.from(upstream.data));
+  } catch {
+    response.status(502).json({ error: 'Could not load the profile background image from Steam.' });
+  }
+});
+
 app.get('/api/backgrounds', async (request, response) => {
   const query = typeof request.query.query === 'string' ? request.query.query.trim().slice(0, 80) : '';
   const start = Number(request.query.start ?? 0);

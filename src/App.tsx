@@ -7,7 +7,7 @@ import { useEffect, useRef, useState, type FormEvent } from 'react';
 import { ArrowUpRight, Check, CircleHelp, Coffee, Download, ExternalLink, Github, History, Images, LoaderCircle, PanelsTopLeft, Pause, Play, RefreshCw, RotateCcw, Search, ShieldCheck, TriangleAlert, X } from 'lucide-react';
 import AvatarEditor, { DEFAULT_AVATAR_EDIT, type AvatarEditState } from './components/AvatarEditor';
 import AvatarFramePicker, { type SteamAvatarFrame } from './components/AvatarFramePicker';
-import BackgroundPicker, { type SteamBackground } from './components/BackgroundPicker';
+import BackgroundPicker, { type ProfileBackgroundSize, type SteamBackground } from './components/BackgroundPicker';
 import ProfileThemePicker, { type AppliedProfileTheme } from './components/ProfileThemePicker';
 import ShowcaseEditor, { type IncomingArtworkResult, type RemovedShowcase } from './components/ShowcaseEditor';
 import GuidePage, { getGuideForPath } from './components/GuidePage';
@@ -102,6 +102,7 @@ type ProjectDraft = {
     avatarEdit: AvatarEditState;
     avatarFrame: SteamAvatarFrame | null;
     background: SteamBackground | null;
+    backgroundSize?: ProfileBackgroundSize;
     profileTheme: AppliedProfileTheme | null;
     previewLevel: number;
   };
@@ -120,7 +121,27 @@ const maxSavedSessions = 12;
 const sessionIdPattern = /^[A-Za-z0-9_-]{12,64}$/;
 let projectDatabase: Promise<IDBDatabase> | null = null;
 
+const changelogSeenKey = 'steamcanvas-changelog-seen';
+
+function readChangelogSeen(): string | null {
+  try {
+    return localStorage.getItem(changelogSeenKey);
+  } catch {
+    return null;
+  }
+}
+
 const changelogEntries = [
+  {
+    date: '2026-11-02',
+    displayDate: 'November 2, 2026',
+    category: 'TRANSPARENT BACKGROUND',
+    title: 'Showcases that blend into your background',
+    details: [
+      'Crop the profile background behind Artwork, Featured Artwork, Screenshot, and Workshop showcases with one click, then drag the preview to set the height.',
+      'Choose Full size or Original size for your background, and the crop follows that choice; empty areas are filled with black.',
+    ],
+  },
   {
     date: '2026-10-09',
     displayDate: 'October 9, 2026',
@@ -410,6 +431,7 @@ function isProjectDraft(value: unknown): value is ProjectDraft {
     && avatarIsValid
     && frameIsValid
     && backgroundIsValid
+    && (state.backgroundSize === undefined || state.backgroundSize === 'full' || state.backgroundSize === 'original')
     && themeIsValid
     && Number.isFinite(state.previewLevel);
 }
@@ -426,6 +448,7 @@ export default function App() {
   const [avatarEdit, setAvatarEdit] = useState<AvatarEditState>(DEFAULT_AVATAR_EDIT);
   const [avatarFrame, setAvatarFrame] = useState<SteamAvatarFrame | null>(null);
   const [background, setBackground] = useState<SteamBackground | null>(null);
+  const [backgroundSize, setBackgroundSize] = useState<ProfileBackgroundSize>('full');
   const [profileTheme, setProfileTheme] = useState<AppliedProfileTheme | null>(null);
   const [previewLevel, setPreviewLevel] = useState(0);
   const [sourceBackgroundImage, setSourceBackgroundImage] = useState('');
@@ -449,6 +472,7 @@ export default function App() {
   const prevAutosaveDepsRef = useRef<Record<string, unknown> | null>(null);
   const previewFrame = useRef<HTMLIFrameElement>(null);
   const changelogDialog = useRef<HTMLDialogElement>(null);
+  const [changelogSeen, setChangelogSeen] = useState(() => readChangelogSeen() === changelogEntries[0].date);
   const exportAssetsRef = useRef<(() => Promise<void>) | null>(null);
   const pendingDraft = useRef<ProjectDraft | null>(null);
   const identifierRef = useRef('');
@@ -673,7 +697,8 @@ export default function App() {
       });
       page.prepend(originalBackground);
     }
-  }, [background, previewLoaded, profile]);
+    page.classList.toggle('full_width_background', backgroundSize === 'full');
+  }, [background, backgroundSize, previewLoaded, profile]);
 
   /** Loads a profile. With a draft it restores that session; without one it starts a new session. */
   async function loadProfileByIdentifier(rawIdentifier: string, draft: ProjectDraft | null = null, sessionId: string | null = null) {
@@ -695,6 +720,7 @@ export default function App() {
     setAvatarEdit(draft?.settings.avatarEdit || DEFAULT_AVATAR_EDIT);
     setAvatarFrame(draft?.settings.avatarFrame || null);
     setBackground(draft?.settings.background || null);
+    setBackgroundSize(draft?.settings.backgroundSize === 'original' ? 'original' : 'full');
     setProfileTheme(draft?.settings.profileTheme || null);
     setPreviewLevel(draft?.settings.previewLevel ?? 0);
     setSourceBackgroundImage('');
@@ -740,7 +766,7 @@ export default function App() {
       profileIdentifier: profile.url,
       showcaseAreaHtml: serializeShowcaseArea(document),
       removedShowcases,
-      settings: { avatarEdit, avatarFrame, background, profileTheme, previewLevel },
+      settings: { avatarEdit, avatarFrame, background, backgroundSize, profileTheme, previewLevel },
     };
   }
 
@@ -790,6 +816,7 @@ export default function App() {
     setAvatarEdit(DEFAULT_AVATAR_EDIT);
     setAvatarFrame(null);
     setBackground(null);
+    setBackgroundSize('full');
     setProfileTheme(null);
     setPreviewLevel(profile.level ?? 0);
     setRemovedShowcases([]);
@@ -925,7 +952,7 @@ ${JSON.stringify(draft)}`;
       globalThis.clearTimeout(timer);
       observer.disconnect();
     };
-  }, [profile, previewLoaded, showcaseDocument, avatarEdit, avatarFrame, background, profileTheme, previewLevel, removedShowcases]);
+  }, [profile, previewLoaded, showcaseDocument, avatarEdit, avatarFrame, background, backgroundSize, profileTheme, previewLevel, removedShowcases]);
 
   const guide = getGuideForPath(globalThis.location.pathname);
   if (guide) return <GuidePage guide={guide} />;
@@ -942,7 +969,16 @@ ${JSON.stringify(draft)}`;
         </div>
         <nav className="topbar-actions" aria-label="Site navigation">
           <a className="topbar-link" href="/guides/featured-artwork">Guides</a>
-          <button className="topbar-link changelog-trigger" type="button" aria-label="Open changelog" aria-haspopup="dialog" onClick={() => changelogDialog.current?.showModal()}><History size={15} /><span>Changelog</span></button>
+          <button className="topbar-link changelog-trigger" type="button" aria-label="Open changelog" aria-haspopup="dialog" onClick={() => {
+            changelogDialog.current?.showModal();
+            if (changelogSeen) return;
+            try {
+              localStorage.setItem(changelogSeenKey, changelogEntries[0].date);
+            } catch {
+              // Storage can be unavailable; the dot will simply show again next visit.
+            }
+            setChangelogSeen(true);
+          }}><History size={15} /><span>Changelog</span>{!changelogSeen && <i className="changelog-new-dot" aria-hidden="true" />}</button>
           <a className="topbar-link" href={ARTWORK_STUDIO_URL}><Images size={15} /> Artwork Studio</a>
           <a className="topbar-link" href={sourceCodeUrl} target="_blank" rel="noreferrer"><Github size={15} /> Source <ExternalLink size={12} /></a>
           <a className="topbar-link" href="https://buymeacoffee.com/migueelss" target="_blank" rel="noreferrer"><Coffee size={15} /> Support dumbapplee <ExternalLink size={12} /></a>
@@ -1085,7 +1121,7 @@ ${JSON.stringify(draft)}`;
               <AvatarEditor sourceAvatar={profile.avatar} value={avatarEdit} onChange={setAvatarEdit} />
               <AvatarFramePicker sourceAvatar={avatarEdit.imageUrl || profile.avatar} sourceFrameImage={sourceAvatarFrameImage} value={avatarFrame} onChange={setAvatarFrame} />
               <ProfileThemePicker value={profileTheme} onApply={setProfileTheme} />
-              <BackgroundPicker sourceBackgroundImage={sourceBackgroundImage} value={background} onChange={setBackground} />
+              <BackgroundPicker sourceBackgroundImage={sourceBackgroundImage} value={background} onChange={setBackground} backgroundSize={backgroundSize} onBackgroundSizeChange={setBackgroundSize} />
             </>
           )}
 
@@ -1154,6 +1190,8 @@ ${JSON.stringify(draft)}`;
                   previewDocument={showcaseDocument}
                   profileUrl={profile?.url || ''}
                   profileName={profile?.name || 'steamcanvas'}
+                  backgroundImageUrl={background?.imageUrl || sourceBackgroundImage}
+                  backgroundSize={backgroundSize}
                   addControlTarget={showcaseAddTarget}
                   trashControlTarget={showcaseTrashTarget}
                   removedShowcases={removedShowcases}

@@ -27,13 +27,17 @@ type BackgroundResponse = {
 	error?: string;
 };
 
+export type ProfileBackgroundSize = 'full' | 'original';
+
 type BackgroundPickerProps = {
 	sourceBackgroundImage: string;
 	value: SteamBackground | null;
 	onChange: (background: SteamBackground | null) => void;
+	backgroundSize: ProfileBackgroundSize;
+	onBackgroundSizeChange: (size: ProfileBackgroundSize) => void;
 };
 
-export default function BackgroundPicker({ sourceBackgroundImage, value, onChange }: BackgroundPickerProps) {
+export default function BackgroundPicker({ sourceBackgroundImage, value, onChange, backgroundSize, onBackgroundSizeChange }: BackgroundPickerProps) {
 	const [query, setQuery] = useState('');
 	const [submittedQuery, setSubmittedQuery] = useState('');
 	const [source, setSource] = useState<'market' | 'points'>('market');
@@ -175,6 +179,20 @@ export default function BackgroundPicker({ sourceBackgroundImage, value, onChang
 						{steamUrl && <a className="steam-item-link" href={steamUrl} target="_blank" rel="noopener noreferrer"><ExternalLink size={13} /> View on Steam</a>}
 				</div>
 			</div>
+
+			<fieldset className="background-size-picker">
+				<legend>Background size</legend>
+				<div className="background-size-options">
+					<label>
+						<input type="radio" name="background-size" checked={backgroundSize === 'full'} onChange={() => onBackgroundSizeChange('full')} />
+						<span>Full size</span>
+					</label>
+					<label>
+						<input type="radio" name="background-size" checked={backgroundSize === 'original'} onChange={() => onBackgroundSizeChange('original')} />
+						<span>Original size</span>
+					</label>
+				</div>
+			</fieldset>
 
 			<dialog
 				ref={dialogRef}
