@@ -44,6 +44,7 @@ type ShowcaseEditorProps = {
 	profileUrl: string;
 	profileName: string;
 	backgroundImageUrl: string;
+	backgroundIsAnimated: boolean;
 	backgroundSize: ProfileBackgroundSize;
 	addControlTarget: HTMLElement | null;
 	trashControlTarget: HTMLElement | null;
@@ -960,7 +961,7 @@ function sourceName(source: EditorSource): string {
 	return isPublicScreenshot(source) ? `Screenshot ${source.id}` : source.name;
 }
 
-export default function ShowcaseEditor({ previewDocument, profileUrl, profileName, backgroundImageUrl, backgroundSize, addControlTarget, trashControlTarget, removedShowcases, onRemovedShowcasesChange, exportAssetsRef, incomingArtwork = null, onIncomingArtworkApplied }: ShowcaseEditorProps) {
+export default function ShowcaseEditor({ previewDocument, profileUrl, profileName, backgroundImageUrl, backgroundIsAnimated, backgroundSize, addControlTarget, trashControlTarget, removedShowcases, onRemovedShowcasesChange, exportAssetsRef, incomingArtwork = null, onIncomingArtworkApplied }: ShowcaseEditorProps) {
 	const [entries, setEntries] = useState<ShowcaseEntry[]>([]);
 	// The document the current entries were read from, so receive mode waits for the scan to finish.
 	const [entriesDocument, setEntriesDocument] = useState<Document | null>(null);
@@ -2092,7 +2093,7 @@ export default function ShowcaseEditor({ previewDocument, profileUrl, profileNam
 	}
 
 	async function selectProfileBackgroundCrop() {
-		if (!activeEditor) return;
+		if (!activeEditor || backgroundIsAnimated) return;
 		const url = getBackgroundUrl(backgroundImageUrl);
 		if (!url) {
 			setEditorError('No static profile background image is available to crop.');
@@ -2948,11 +2949,17 @@ export default function ShowcaseEditor({ previewDocument, profileUrl, profileNam
 								<button className={artworkLayout === 'main-three-side' ? 'is-active' : ''} type="button" aria-pressed={artworkLayout === 'main-three-side'} onClick={() => { setArtworkLayout('main-three-side'); setEditorFiles([]); setEditorPreview([]); setUploadButtonPreview(null); setEditorError(''); }}><span className="showcase-layout-icon is-four"><i /><i /><i /><i /></span><span className="showcase-layout-copy"><strong>Main + 3 sides</strong><small>4 panels</small></span></button>
 							</div></div>}
 							<div className="showcase-editor-control-group">
-								<button className="avatar-upload-button showcase-editor-background-crop" type="button" disabled={editorLoading || !getBackgroundUrl(backgroundImageUrl)} onClick={() => void selectProfileBackgroundCrop()}>
+								<button
+									className="avatar-upload-button showcase-editor-background-crop"
+									type="button"
+									disabled={editorLoading || backgroundIsAnimated || !getBackgroundUrl(backgroundImageUrl)}
+									title={backgroundIsAnimated ? 'Unavailable for animated profile backgrounds' : undefined}
+									onClick={() => void selectProfileBackgroundCrop()}
+								>
 									{editorLoading ? <LoaderCircle size={14} className="spin" /> : <ImagePlus size={14} />}
-									{editorLoading ? 'Preparing...' : 'Transparent background'}
+									<span style={backgroundIsAnimated ? { textDecoration: 'line-through' } : undefined}>{editorLoading ? 'Preparing...' : 'Transparent background'}</span>
 								</button>
-								{!getBackgroundUrl(backgroundImageUrl) && <small className="showcase-background-crop-copy">Choose a static profile background first.</small>}
+								{!backgroundIsAnimated && !getBackgroundUrl(backgroundImageUrl) && <small className="showcase-background-crop-copy">Choose a static profile background first.</small>}
 							</div>
 							{activeEditor.kind === 'screenshot' && <div className={`showcase-public-picker ${publicScreenshotExpanded ? 'is-expanded' : ''}`}>
 								<div className="showcase-editor-label">PUBLIC SCREENSHOTS</div>

@@ -213,7 +213,7 @@ a { color: inherit; }
 .avatar-editor-preview img { width: 100%; height: 100%; object-fit: cover; transition: transform .12s ease; }
 .avatar-upload-actions { min-width: 0; display: grid; gap: 7px; }
 .avatar-upload-button { height: 34px; display: inline-flex; align-items: center; justify-content: center; gap: 7px; padding: 0 10px; border: 1px solid #d9dcd6; background: #fff; color: #38413d; font-size: 11px; cursor: pointer; }
-.avatar-upload-button:hover { border-color: #a7c75e; }
+.avatar-upload-button:hover:not(:disabled) { border-color: #a7c75e; }
 .avatar-frame-picker { margin-top: 20px; padding-top: 16px; border-top: 1px solid var(--line); }
 .avatar-frame-picker-heading { display: flex; align-items: center; justify-content: space-between; }
 .avatar-frame-picker-heading .icon-button:disabled { opacity: .4; cursor: default; }
@@ -899,7 +899,7 @@ body { min-width: 360px; background: #0a1118; color: #e7edf3; }
 .icon-button:hover { border-color: #66c0f4; color: #eef6fa; }
 .avatar-editor-preview { border-color: #405360; background: #1a2933; }
 .avatar-upload-button, .background-search, .background-option, .avatar-frame-option, .profile-theme-option { border-color: #30434f; background-color: #14212a; color: #dce6eb; }
-.avatar-upload-button:hover, .background-option:hover, .avatar-frame-option:hover, .profile-theme-option:hover { border-color: #66c0f4; }
+.avatar-upload-button:hover:not(:disabled), .background-option:hover, .avatar-frame-option:hover, .profile-theme-option:hover { border-color: #66c0f4; }
 .avatar-frame-option.is-selected, .profile-theme-option.is-selected, .background-option.is-selected { border-color: #66c0f4; box-shadow: inset 0 0 0 1px #66c0f4; }
 .avatar-frame-picker-heading .source-label, .profile-theme-picker-heading .source-label, .background-picker-heading .source-label { color: #8da1ab; }
 .showcase-add-section > .source-label { color: #8da1ab; }
@@ -1110,7 +1110,8 @@ body { background: #100e16; color: #eeeaf6; }
 .icon-button, .project-action { border-color: #40364e; background: #211c29; color: #c5bbd2; }
 .icon-button:hover, .project-action:hover:not(:disabled) { border-color: #a78bfa; background: #2a2236; color: #f4efff; }
 .avatar-upload-button { border-color: #40364e; background: #211c29; color: #ded6ea; }
-.avatar-upload-button:hover, .avatar-frame-option:hover, .profile-theme-option:hover:not(:disabled), .background-option:hover { border-color: #a78bfa; }
+.avatar-upload-button:hover:not(:disabled), .avatar-frame-option:hover, .profile-theme-option:hover:not(:disabled), .background-option:hover { border-color: #a78bfa; }
+.avatar-upload-button:disabled { border-color: #1c1824; background: #0d0b11; color: #4a4356; cursor: not-allowed; }
 .avatar-frame-option.is-selected, .profile-theme-option[aria-pressed="true"], .background-option.is-selected { border-color: #a78bfa; box-shadow: inset 0 0 0 1px #a78bfa; }
 .source-level { border-color: #514363; color: #c1a9ff; }
 .source-url:hover, .open-source:hover { color: #c1a9ff; }

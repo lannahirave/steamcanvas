@@ -35,9 +35,10 @@ type BackgroundPickerProps = {
 	onChange: (background: SteamBackground | null) => void;
 	backgroundSize: ProfileBackgroundSize;
 	onBackgroundSizeChange: (size: ProfileBackgroundSize) => void;
+	isAnimated: boolean;
 };
 
-export default function BackgroundPicker({ sourceBackgroundImage, value, onChange, backgroundSize, onBackgroundSizeChange }: BackgroundPickerProps) {
+export default function BackgroundPicker({ sourceBackgroundImage, value, onChange, backgroundSize, onBackgroundSizeChange, isAnimated }: BackgroundPickerProps) {
 	const [query, setQuery] = useState('');
 	const [submittedQuery, setSubmittedQuery] = useState('');
 	const [source, setSource] = useState<'market' | 'points'>('market');
@@ -180,7 +181,7 @@ export default function BackgroundPicker({ sourceBackgroundImage, value, onChang
 				</div>
 			</div>
 
-			<fieldset className="background-size-picker">
+			{!isAnimated && <fieldset className="background-size-picker">
 				<legend>Background size</legend>
 				<div className="background-size-options">
 					<label>
@@ -192,7 +193,7 @@ export default function BackgroundPicker({ sourceBackgroundImage, value, onChang
 						<span>Original size</span>
 					</label>
 				</div>
-			</fieldset>
+			</fieldset>}
 
 			<dialog
 				ref={dialogRef}

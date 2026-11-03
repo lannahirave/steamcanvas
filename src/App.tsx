@@ -452,6 +452,8 @@ export default function App() {
   const [profileTheme, setProfileTheme] = useState<AppliedProfileTheme | null>(null);
   const [previewLevel, setPreviewLevel] = useState(0);
   const [sourceBackgroundImage, setSourceBackgroundImage] = useState('');
+  const [sourceBackgroundAnimated, setSourceBackgroundAnimated] = useState(false);
+  const backgroundIsAnimated = background ? Boolean(background.animated) : sourceBackgroundAnimated;
   const [sourceAvatarFrameImage, setSourceAvatarFrameImage] = useState('');
   const [showcaseDocument, setShowcaseDocument] = useState<Document | null>(null);
   const [showcaseAddTarget, setShowcaseAddTarget] = useState<HTMLDivElement | null>(null);
@@ -697,8 +699,8 @@ export default function App() {
       });
       page.prepend(originalBackground);
     }
-    page.classList.toggle('full_width_background', backgroundSize === 'full');
-  }, [background, backgroundSize, previewLoaded, profile]);
+    page.classList.toggle('full_width_background', backgroundIsAnimated || backgroundSize === 'full');
+  }, [background, backgroundIsAnimated, backgroundSize, previewLoaded, profile]);
 
   /** Loads a profile. With a draft it restores that session; without one it starts a new session. */
   async function loadProfileByIdentifier(rawIdentifier: string, draft: ProjectDraft | null = null, sessionId: string | null = null) {
@@ -1121,7 +1123,7 @@ ${JSON.stringify(draft)}`;
               <AvatarEditor sourceAvatar={profile.avatar} value={avatarEdit} onChange={setAvatarEdit} />
               <AvatarFramePicker sourceAvatar={avatarEdit.imageUrl || profile.avatar} sourceFrameImage={sourceAvatarFrameImage} value={avatarFrame} onChange={setAvatarFrame} />
               <ProfileThemePicker value={profileTheme} onApply={setProfileTheme} />
-              <BackgroundPicker sourceBackgroundImage={sourceBackgroundImage} value={background} onChange={setBackground} backgroundSize={backgroundSize} onBackgroundSizeChange={setBackgroundSize} />
+              <BackgroundPicker sourceBackgroundImage={sourceBackgroundImage} value={background} onChange={setBackground} backgroundSize={backgroundSize} onBackgroundSizeChange={setBackgroundSize} isAnimated={backgroundIsAnimated} />
             </>
           )}
 
@@ -1174,6 +1176,7 @@ ${JSON.stringify(draft)}`;
                   sourceAvatarFrame.current = avatarFrameElement ? avatarFrameElement.cloneNode(true) as HTMLElement : null;
                   const poster = animatedBackground?.querySelector<HTMLVideoElement>('video')?.poster;
                   setSourceBackgroundImage(poster ? `url("${poster}")` : page ? getComputedStyle(page).backgroundImage : '');
+                  setSourceBackgroundAnimated(Boolean(animatedBackground));
                   setSourceAvatarFrameImage(avatarFrameImage?.currentSrc || avatarFrameImage?.src || '');
                   setShowcaseDocument(document || null);
                   setPreviewLoaded(true);
@@ -1191,6 +1194,7 @@ ${JSON.stringify(draft)}`;
                   profileUrl={profile?.url || ''}
                   profileName={profile?.name || 'steamcanvas'}
                   backgroundImageUrl={background?.imageUrl || sourceBackgroundImage}
+                  backgroundIsAnimated={backgroundIsAnimated}
                   backgroundSize={backgroundSize}
                   addControlTarget={showcaseAddTarget}
                   trashControlTarget={showcaseTrashTarget}
