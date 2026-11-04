@@ -2,7 +2,8 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 //
 // Lists the conversions saved in Steam Artwork Studio's Library (in this browser) inside the
-// showcase editor, so they can be placed without downloading and re-selecting the files.
+// showcase editor, so they can be placed without downloading and re-selecting the files. Below them
+// come the demo page examples SteamCanvas saved itself (?demo=, utils/savedArtwork.ts).
 
 import { useEffect, useMemo, useState } from 'react';
 import { Images, LoaderCircle, RotateCcw } from 'lucide-react';
@@ -13,6 +14,8 @@ import {
   type IncomingArtwork,
   type StudioLibraryEntry,
 } from '../utils/artworkStudioLibrary';
+import { DEMO_ARTWORK_URL } from '../utils/demoArtwork';
+import { listSavedArtwork, toIncomingArtwork, type SavedArtwork } from '../utils/savedArtwork';
 
 export type StudioPickerKind = 'workshop' | 'artwork' | 'screenshot' | 'featured-artwork';
 
@@ -25,8 +28,32 @@ type Props = {
 type LoadState =
   | { status: 'idle' }
   | { status: 'loading' }
-  | { status: 'ready'; entries: StudioLibraryEntry[] }
-  | { status: 'error'; message: string };
+  | { status: 'ready'; entries: StudioLibraryEntry[]; studioError: string | null; demo: StudioLibraryEntry[] };
+
+/** A demo page example saved in this browser, in the shape the list shows. */
+function demoEntry(record: SavedArtwork): StudioLibraryEntry {
+  const artwork = toIncomingArtwork(record);
+  return {
+    id: record.id,
+    createdAt: record.savedAt,
+    sourceName: record.title,
+    preset: record.preset,
+    workshopRows: record.workshopRows,
+    complete: true,
+    files: artwork.files,
+    widths: record.files.map((file) => file.width),
+    heights: record.files.map((file) => file.height),
+    artwork,
+    problem: null,
+  };
+}
+
+function rank(entries: StudioLibraryEntry[], kind: StudioPickerKind, startRow: number) {
+  return entries
+    .map((entry) => ({ entry, problem: placementProblem(entry, kind, startRow) }))
+    // Usable entries first, each group newest first (both sources are already newest first).
+    .sort((left, right) => Number(!!left.problem) - Number(!!right.problem));
+}
 
 /** Why an entry cannot go in this showcase, or null when it can. */
 function placementProblem(entry: StudioLibraryEntry, kind: StudioPickerKind, startRow: number): string | null {
@@ -79,20 +106,25 @@ export default function StudioLibraryPicker({ kind, disabled, onChoose }: Props)
     let active = true;
     void Promise.resolve().then(() => {
       if (active) setState({ status: 'loading' });
-      return listStudioLibrary();
-    }).then((entries) => {
-      if (active) setState({ status: 'ready', entries });
-    }).catch((caught: unknown) => {
-      if (active) setState({ status: 'error', message: caught instanceof Error ? caught.message : 'Could not read the Steam Artwork Studio Library.' });
+      // The Studio may be unreachable while the demo examples, kept here, still load.
+      return Promise.allSettled([listStudioLibrary(), listSavedArtwork()]);
+    }).then(([studio, saved]) => {
+      if (!active) return;
+      setState({
+        status: 'ready',
+        entries: studio.status === 'fulfilled' ? studio.value : [],
+        studioError: studio.status === 'rejected'
+          ? studio.reason instanceof Error ? studio.reason.message : 'Could not read the Steam Artwork Studio Library.'
+          : null,
+        demo: saved.status === 'fulfilled' ? saved.value.map(demoEntry) : [],
+      });
     });
     return () => { active = false; };
   }, [open, revision]);
 
-  const entries = state.status === 'ready' ? state.entries : [];
-  const ranked = entries
-    .map((entry) => ({ entry, problem: placementProblem(entry, kind, startRow) }))
-    // Usable conversions first, each group newest first (the Studio already sends them newest first).
-    .sort((left, right) => Number(!!left.problem) - Number(!!right.problem));
+  const ready = state.status === 'ready' ? state : null;
+  const ranked = rank(ready?.entries ?? [], kind, startRow);
+  const demoRanked = rank(ready?.demo ?? [], kind, startRow);
 
   return (
     <div className="showcase-editor-control-group studio-library-picker">
@@ -102,7 +134,7 @@ export default function StudioLibraryPicker({ kind, disabled, onChoose }: Props)
           <Images size={17} />
           <span>
             <strong>Choose from Artwork Studio</strong>
-            <small>GIFs saved in the Steam Artwork Studio Library of this browser</small>
+            <small>GIFs saved in this browser: your Studio Library and demo page examples</small>
           </span>
         </button>
       ) : (
@@ -116,13 +148,13 @@ export default function StudioLibraryPicker({ kind, disabled, onChoose }: Props)
             </div>
           )}
           {state.status === 'loading' && <div className="showcase-public-picker-status" role="status"><LoaderCircle size={14} className="spin" aria-hidden="true" />Reading the Artwork Studio Library…</div>}
-          {state.status === 'error' && (
+          {ready?.studioError && (
             <div className="showcase-public-picker-status" role="alert">
-              <span>{state.message}</span>
+              <span>{ready.studioError}</span>
               <button className="studio-library-retry" type="button" onClick={() => setRevision((value) => value + 1)}><RotateCcw size={12} /> Retry</button>
             </div>
           )}
-          {state.status === 'ready' && !entries.length && (
+          {ready && !ready.studioError && !ready.entries.length && (
             <p className="showcase-public-picker-copy">Nothing saved yet. Conversions you make in <a href={ARTWORK_STUDIO_URL} target="_blank" rel="noreferrer">Steam Artwork Studio</a> appear here.</p>
           )}
           {ranked.length > 0 && (
@@ -132,7 +164,17 @@ export default function StudioLibraryPicker({ kind, disabled, onChoose }: Props)
               ))}
             </div>
           )}
-          {state.status === 'ready' && (
+          {demoRanked.length > 0 && (
+            <>
+              <span className="showcase-editor-label studio-library-group">FROM THE <a href={DEMO_ARTWORK_URL} target="_blank" rel="noreferrer">DEMO PAGE</a></span>
+              <div className="studio-library-list">
+                {demoRanked.map(({ entry, problem }) => (
+                  <EntryButton key={entry.id} entry={entry} problem={problem} disabled={disabled} onChoose={() => entry.artwork && onChoose(entry.artwork, startRow)} />
+                ))}
+              </div>
+            </>
+          )}
+          {ready && (
             <button className="studio-library-retry" type="button" onClick={() => setRevision((value) => value + 1)}><RotateCcw size={12} /> Refresh</button>
           )}
         </>

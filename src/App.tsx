@@ -39,9 +39,9 @@ type HandoffState =
 function HandoffNotice({ state, hasProfile }: { state: HandoffState; hasProfile: boolean }) {
   if (state.status === 'none') return null;
   const demo = state.from === 'demo';
-  const origin = demo ? 'the Steam Artwork Studio demo page' : 'Steam Artwork Studio';
+  const origin = demo ? 'the demo page' : 'Steam Artwork Studio';
   if (state.status === 'loading') {
-    return <div className="handoff-notice" role="status"><LoaderCircle className="spin" size={15} /><span>{demo ? 'Getting the example GIFs from the Steam Artwork Studio demo page…' : 'Getting your GIFs from Steam Artwork Studio…'}</span></div>;
+    return <div className="handoff-notice" role="status"><LoaderCircle className="spin" size={15} /><span>{demo ? 'Getting the example GIFs from the demo page…' : 'Getting your GIFs from Steam Artwork Studio…'}</span></div>;
   }
   if (state.status === 'error') {
     return <div className="handoff-notice is-error" role="alert"><TriangleAlert size={15} /><span>{state.message} <a href={demo ? DEMO_ARTWORK_URL : ARTWORK_STUDIO_URL}>{demo ? 'Open the demo page' : 'Open Steam Artwork Studio'}</a></span></div>;

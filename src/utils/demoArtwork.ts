@@ -36,7 +36,7 @@ export class DemoArtworkError extends Error {
 function demoErrorMessage(reason: DemoFailureReason): string {
   switch (reason) {
     case 'not-found':
-      return 'This example is no longer on the Steam Artwork Studio demo page.';
+      return 'This example is no longer on the demo page.';
     case 'network':
       return 'Could not download the example from the Steam Artwork Studio demo page. Check your connection and reload.';
     default:
