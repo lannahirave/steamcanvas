@@ -120,11 +120,77 @@ restores the draft instead of placing the GIFs again.
 | --- | --- | --- |
 | Studio `VITE_PROFILE_PREVIEW_ORIGIN` and Worker var `PROFILE_PREVIEW_ORIGIN` | `https://previewartwork.lannahirave.com` | `http://localhost:5180` |
 | SteamCanvas `VITE_ARTWORK_STUDIO_ORIGIN` | `https://artworkstudio.lannahirave.com` | `http://localhost:5173` |
+| SteamCanvas `VITE_DEMO_ARTWORK_ORIGIN` and Worker var `DEMO_ARTWORK_ORIGIN` | `https://demoartwork.lannahirave.com` (beta: `https://demoartwork-beta.lannahirave.com`) | any static server for `deploy/` that sends the CORS headers below |
 
 `localhost:5173` and `localhost:5180` are the same site (ports are ignored), so the bridge works in
 local development too.
 
-## 3. Changes in the SteamCanvas fork
+## 3. Demo page examples (`?demo=`)
+
+Every example on the demo page (`demoartwork.lannahirave.com`, built by
+`bench/chatexport/run-chatexport.mjs`) has a **Preview on my Steam profile** link. It opens
+`https://previewartwork.lannahirave.com/?demo=<id>` in a new tab.
+
+- The demo site publishes `demo-manifest.json` next to `index.html`:
+
+  ```json
+  { "version": 1, "items": [
+    { "id": "tiktok-ZS9txQQ1h-workshop-1", "title": "vt.tiktok.com/ZS9txQQ1h · Workshop · 1 row",
+      "preset": "workshop", "workshopRows": 1,
+      "files": [{ "path": "gifs/tiktok-ZS9txQQ1h/workshop-1/tiktok-ZS9txQQ1h_part_01.gif", "width": 150, "height": 422 }] }
+  ] }
+  ```
+
+  `id` is `<video name>-<variant>` (`[A-Za-z0-9_-]{3,96}`). It never depends on file paths, so links and
+  saved copies survive moving or renaming the GIFs. Files are listed in placement order (row by row,
+  left to right). Paths are relative to the demo origin.
+- `src/utils/demoArtwork.ts` handles `?demo=`. It uses the saved copy if there is one, without asking the
+  demo site. Otherwise it reads the manifest, checks it (every file on the demo origin, the right count for
+  the preset, at most 15 files, at most 12 MB each, image types only), downloads the GIFs with
+  `credentials: 'omit'` and saves them (`src/utils/savedArtwork.ts`). Then the GIFs are placed like Studio
+  artwork, and `demo` is removed from the URL.
+- Saved copies live in IndexedDB `steamcanvas-saved-artwork`, store `artwork`, key `demo:<id>`. They stay
+  until the visitor deletes them in the Studio's Library tab (section 4) or clears site data. If the
+  browser refuses to store them, the GIFs are still placed and a note says so.
+- If the ID is not in the manifest (the example was removed and never saved), SteamCanvas says so and
+  links to the demo page.
+- The demo site's `_headers` sends `Access-Control-Allow-Origin: *` and
+  `Cross-Origin-Resource-Policy: cross-origin` for `/gifs/*` and `/demo-manifest.json`, and `no-cache`
+  for the manifest. The SteamCanvas Worker adds the demo origin to `connect-src`.
+
+## 4. The saved-artwork bridge: managing SteamCanvas's copies from the Studio
+
+The Studio's Library tab has a **Saved in SteamCanvas** section that lists, opens and deletes the copies
+from section 3. They are in SteamCanvas's IndexedDB, so the Studio embeds SteamCanvas's `/bridge/` page
+(`bridge/index.html`, `src/bridge/main.ts`) in a hidden iframe. Studio side:
+`app/web/src/lib/steamCanvasSaved.ts` and `SteamCanvasSavedSection.tsx`.
+
+- The Studio is cross-origin isolated (COEP `require-corp`), so the Worker serves `/bridge/` with
+  `Cross-Origin-Embedder-Policy: require-corp` and `Cross-Origin-Resource-Policy: same-site`, and a CSP
+  of `default-src 'none'; script-src 'self'; connect-src 'self'; frame-ancestors <Studio origin>`.
+  X-Frame-Options is removed there. The Studio's CSP has `frame-src <PROFILE_PREVIEW_ORIGIN>`.
+- The Studio and SteamCanvas are the same site (`lannahirave.com`), so the iframe sees SteamCanvas's own,
+  unpartitioned storage. Browsers that partition or block third-party storage (Safari) show an empty or
+  unavailable list; the Library says SteamCanvas could not be reached.
+
+### Message protocol (version 1)
+
+Every message has `channel: 'saved-artwork'` and `version: 1`. The bridge only accepts messages from
+`VITE_ARTWORK_STUDIO_ORIGIN` sent by its parent window, and only posts to that origin.
+
+| Direction | `source` | `type` | Other fields |
+| --- | --- | --- | --- |
+| SteamCanvas → Studio | `steamcanvas` | `ready` | sent once on load |
+| Studio → SteamCanvas | `steam-artwork-studio` | `list` | `requestId` (≤ 64 characters) |
+| Studio → SteamCanvas | `steam-artwork-studio` | `delete` | `requestId`, `id` (the saved key, `demo:<id>`) |
+| Studio → SteamCanvas | `steam-artwork-studio` | `clear` | `requestId` |
+| SteamCanvas → Studio | `steamcanvas` | `list-result` | `requestId`, `entries`: `{ id, kind, sourceId, title, preset, workshopRows, savedAt, bytes, files: [{ name, type, width, height, blob }] }`, newest first |
+| SteamCanvas → Studio | `steamcanvas` | `done` | `requestId` (after `delete` or `clear`) |
+| SteamCanvas → Studio | `steamcanvas` | `error` | `requestId`, `reason: 'storage-unavailable'` |
+
+**Open in SteamCanvas** in the Studio links to `?demo=<sourceId>`, which uses the saved copy.
+
+## 5. Changes in the SteamCanvas fork
 
 **To make it work:**
 

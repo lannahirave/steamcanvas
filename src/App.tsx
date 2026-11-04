@@ -1,6 +1,6 @@
 // Copyright (C) 2026 dumbapplee
-// Modified by lannahirave, 2026: Steam Artwork Studio handoff, source and licence notices,
-// and links to this fork.
+// Modified by lannahirave, 2026: Steam Artwork Studio handoff, demo examples (?demo=), source and
+// licence notices, and links to this fork.
 // SPDX-License-Identifier: AGPL-3.0-only
 
 import { useEffect, useRef, useState, type FormEvent } from 'react';
@@ -20,37 +20,52 @@ import {
   LibraryError,
   type IncomingArtwork,
 } from './utils/artworkStudioLibrary';
+import { DEMO_ARTWORK_URL, DemoArtworkError, isDemoId, loadDemoArtwork } from './utils/demoArtwork';
 
 const forkRepositoryUrl = 'https://github.com/lannahirave/steamcanvas';
 const upstreamRepositoryUrl = 'https://github.com/dumbapplee/steamcanvas';
 const sourceCodeUrl = __SOURCE_REF__ ? `${forkRepositoryUrl}/tree/${__SOURCE_REF__}` : forkRepositoryUrl;
 
+/** Where incoming artwork comes from: the Studio's Library (?studio=) or a demo example (?demo=). */
+type HandoffSource = 'studio' | 'demo';
+
 type HandoffState =
   | { status: 'none' }
-  | { status: 'loading' }
-  | { status: 'ready'; artwork: IncomingArtwork }
-  | { status: 'applied'; artwork: IncomingArtwork; showcaseTitle: string }
-  | { status: 'error'; message: string };
+  | { status: 'loading'; from: HandoffSource }
+  | { status: 'ready'; from: HandoffSource; artwork: IncomingArtwork; note?: string }
+  | { status: 'applied'; from: HandoffSource; artwork: IncomingArtwork; showcaseTitle: string }
+  | { status: 'error'; from: HandoffSource; message: string };
 
 function HandoffNotice({ state, hasProfile }: { state: HandoffState; hasProfile: boolean }) {
   if (state.status === 'none') return null;
+  const demo = state.from === 'demo';
+  const origin = demo ? 'the Steam Artwork Studio demo page' : 'Steam Artwork Studio';
   if (state.status === 'loading') {
-    return <div className="handoff-notice" role="status"><LoaderCircle className="spin" size={15} /><span>Getting your GIFs from Steam Artwork Studio…</span></div>;
+    return <div className="handoff-notice" role="status"><LoaderCircle className="spin" size={15} /><span>{demo ? 'Getting the example GIFs from the Steam Artwork Studio demo page…' : 'Getting your GIFs from Steam Artwork Studio…'}</span></div>;
   }
   if (state.status === 'error') {
-    return <div className="handoff-notice is-error" role="alert"><TriangleAlert size={15} /><span>{state.message} <a href={ARTWORK_STUDIO_URL}>Open Steam Artwork Studio</a></span></div>;
+    return <div className="handoff-notice is-error" role="alert"><TriangleAlert size={15} /><span>{state.message} <a href={demo ? DEMO_ARTWORK_URL : ARTWORK_STUDIO_URL}>{demo ? 'Open the demo page' : 'Open Steam Artwork Studio'}</a></span></div>;
   }
   const count = state.artwork.files.length;
   const files = `${count} ${count === 1 ? 'file' : 'files'}`;
   if (state.status === 'applied') {
-    return <div className="handoff-notice is-done" role="status"><Check size={15} /><span>Placed {files} from Steam Artwork Studio in <strong>{state.showcaseTitle}</strong>. This is only a preview: upload the files from the Studio to Steam yourself.</span></div>;
+    return (
+      <div className="handoff-notice is-done" role="status">
+        <Check size={15} />
+        <span>
+          Placed {files} from {origin} in <strong>{state.showcaseTitle}</strong>.
+          {demo ? ' This is an example: make your own in Steam Artwork Studio.' : ' This is only a preview: upload the files from the Studio to Steam yourself.'}
+        </span>
+      </div>
+    );
   }
   return (
     <div className="handoff-notice" role="status">
       <Images size={15} />
       <span>
-        {files} from Steam Artwork Studio ({describePreset(state.artwork)}{state.artwork.sourceName ? `, ${state.artwork.sourceName}` : ''}).
+        {files} from {origin} ({describePreset(state.artwork)}{state.artwork.sourceName ? `, ${state.artwork.sourceName}` : ''}).
         {hasProfile ? ' Placing them in your showcase…' : ' Load your public profile, or resume a draft, to see them on it.'}
+        {state.note ? ` ${state.note}` : ''}
       </span>
     </div>
   );
@@ -471,7 +486,11 @@ export default function App() {
   const [projectStatus, setProjectStatus] = useState('Autosave ready');
   const [savedDraft, setSavedDraft] = useState<SavedSession | null>(null);
   const [restoringSession, setRestoringSession] = useState(() => readSessionIdFromUrl() !== null);
-  const [handoff, setHandoff] = useState<HandoffState>(() => (isStudioId(readUrlParam('studio')) ? { status: 'loading' } : { status: 'none' }));
+  const [handoff, setHandoff] = useState<HandoffState>(() => {
+    if (isStudioId(readUrlParam('studio'))) return { status: 'loading', from: 'studio' };
+    if (isDemoId(readUrlParam('demo'))) return { status: 'loading', from: 'demo' };
+    return { status: 'none' };
+  });
   // Identifies this editing session in the URL (?session=) and in local storage, so a reload restores it.
   const sessionIdRef = useRef<string | null>(null);
   // Autosave diagnostics (see autosaveDebug).
@@ -514,18 +533,38 @@ export default function App() {
     // Links from before the Library existed; their one-shot records are gone.
     if (readUrlParam('handoff')) updateUrlParams({ handoff: null });
     const id = readUrlParam('studio');
+    const demoId = readUrlParam('demo');
     if (!isStudioId(id)) {
       if (id) updateUrlParams({ studio: null });
-      return;
+      if (!isDemoId(demoId)) {
+        if (demoId) updateUrlParams({ demo: null });
+        return;
+      }
+      // ?demo=<id>: an example from the demo page, kept in this browser after the first visit.
+      let active = true;
+      void loadDemoArtwork(demoId).then(({ artwork, saved }) => {
+        if (!active) return;
+        setHandoff({
+          status: 'ready',
+          from: 'demo',
+          artwork,
+          note: saved ? undefined : 'Your browser would not let SteamCanvas keep a copy, so this example needs the demo page next time.',
+        });
+      }).catch((caught: unknown) => {
+        if (!active) return;
+        if (caught instanceof DemoArtworkError && caught.reason !== 'network') updateUrlParams({ demo: null });
+        setHandoff({ status: 'error', from: 'demo', message: caught instanceof Error ? caught.message : 'Could not get the example from the demo page.' });
+      });
+      return () => { active = false; };
     }
     let active = true;
     void getStudioArtwork(id).then((artwork) => {
-      if (active) setHandoff({ status: 'ready', artwork });
+      if (active) setHandoff({ status: 'ready', from: 'studio', artwork });
     }).catch((caught: unknown) => {
       if (!active) return;
       // Missing or unusable entries will not come back on a reload; a timeout might.
       if (caught instanceof LibraryError && caught.reason !== 'timeout') updateUrlParams({ studio: null });
-      setHandoff({ status: 'error', message: caught instanceof Error ? caught.message : 'Could not receive the GIFs from Steam Artwork Studio.' });
+      setHandoff({ status: 'error', from: 'studio', message: caught instanceof Error ? caught.message : 'Could not receive the GIFs from Steam Artwork Studio.' });
     });
     return () => { active = false; };
   }, []);
@@ -533,12 +572,12 @@ export default function App() {
   function handleIncomingArtworkApplied(result: IncomingArtworkResult) {
     if (handoff.status !== 'ready') return;
     if (!result.ok) {
-      setHandoff({ status: 'error', message: result.message });
+      setHandoff({ status: 'error', from: handoff.from, message: result.message });
       return;
     }
     // The session draft now holds the GIFs: a reload restores it instead of placing them again.
-    updateUrlParams({ studio: null });
-    setHandoff({ status: 'applied', artwork: handoff.artwork, showcaseTitle: result.showcaseTitle });
+    updateUrlParams({ studio: null, demo: null });
+    setHandoff({ status: 'applied', from: handoff.from, artwork: handoff.artwork, showcaseTitle: result.showcaseTitle });
   }
 
   const themeVariableNames = [

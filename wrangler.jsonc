@@ -32,6 +32,7 @@
       "workers_dev": false,
       "vars": {
         "ARTWORK_STUDIO_ORIGIN": "https://artworkstudio-beta.lannahirave.com",
+        "DEMO_ARTWORK_ORIGIN": "https://demoartwork-beta.lannahirave.com",
         "ROBOTS_NOINDEX": "true"
       }
     }

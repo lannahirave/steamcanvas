@@ -33,6 +33,8 @@ interface Env {
   ASSETS: Fetcher;
   /** Origin of Steam Artwork Studio, whose /bridge page SteamCanvas embeds for handoffs. */
   ARTWORK_STUDIO_ORIGIN?: string;
+  /** Origin of the Studio's demo page, whose example GIFs ?demo= downloads. */
+  DEMO_ARTWORK_ORIGIN?: string;
   /** "true" on the beta deployment, so search engines skip it. */
   ROBOTS_NOINDEX?: string;
 }
@@ -601,7 +603,8 @@ async function handleGuide(request: Request, url: URL, env: Env): Promise<Respon
 // <base href="https://steamcommunity.com/"> the server adds to the preview.
 function contentSecurityPolicy(env: Env): string {
   const steamAssets = 'https://*.steamstatic.com https://steamcommunity.com https://*.steamusercontent.com https://*.akamaihd.net';
-  const studioOrigin = env.ARTWORK_STUDIO_ORIGIN || 'https://artworkstudio.lannahirave.com';
+  const studioOrigin = studioOriginOf(env);
+  const demoOrigin = env.DEMO_ARTWORK_ORIGIN || 'https://demoartwork.lannahirave.com';
   return [
     "default-src 'self'",
     "script-src 'self'",
@@ -609,7 +612,7 @@ function contentSecurityPolicy(env: Env): string {
     `img-src 'self' data: blob: ${steamAssets}`,
     `media-src 'self' data: blob: ${steamAssets}`,
     `font-src 'self' data: ${steamAssets} https://fonts.gstatic.com`,
-    `connect-src 'self' data: blob: ${steamAssets}`,
+    `connect-src 'self' data: blob: ${steamAssets} ${demoOrigin}`,
     `frame-src ${studioOrigin}`,
     "object-src 'none'",
     "base-uri 'self' https://steamcommunity.com",
@@ -618,12 +621,43 @@ function contentSecurityPolicy(env: Env): string {
   ].join('; ');
 }
 
-function withSecurityHeaders(response: Response, env: Env): Response {
+function studioOriginOf(env: Env): string {
+  return env.ARTWORK_STUDIO_ORIGIN || 'https://artworkstudio.lannahirave.com';
+}
+
+function isBridgePath(pathname: string): boolean {
+  return pathname === '/bridge' || pathname.startsWith('/bridge/');
+}
+
+// /bridge/ is embedded by the Studio's Library tab to list and delete the artwork saved here
+// (src/bridge/main.ts). The Studio is cross-origin isolated (COEP require-corp), so the frame must
+// opt in with COEP and CORP; only the Studio may frame it, so X-Frame-Options is left out.
+function bridgeHeaders(headers: Headers, env: Env): void {
+  headers.set('Content-Security-Policy', [
+    "default-src 'none'",
+    "script-src 'self'",
+    "connect-src 'self'",
+    "base-uri 'none'",
+    "form-action 'none'",
+    `frame-ancestors ${studioOriginOf(env)}`,
+  ].join('; '));
+  headers.set('Cross-Origin-Embedder-Policy', 'require-corp');
+  headers.set('Cross-Origin-Resource-Policy', 'same-site');
+  headers.set('Referrer-Policy', 'no-referrer');
+  headers.set('Cache-Control', 'no-store');
+  headers.delete('X-Frame-Options');
+}
+
+function withSecurityHeaders(response: Response, env: Env, pathname: string): Response {
   const headers = new Headers(response.headers);
-  headers.set('Content-Security-Policy', contentSecurityPolicy(env));
   headers.set('X-Content-Type-Options', 'nosniff');
-  headers.set('X-Frame-Options', 'DENY');
-  headers.set('Referrer-Policy', 'strict-origin-when-cross-origin');
+  if (isBridgePath(pathname)) {
+    bridgeHeaders(headers, env);
+  } else {
+    headers.set('Content-Security-Policy', contentSecurityPolicy(env));
+    headers.set('X-Frame-Options', 'DENY');
+    headers.set('Referrer-Policy', 'strict-origin-when-cross-origin');
+  }
   if (env.ROBOTS_NOINDEX === 'true') headers.set('X-Robots-Tag', 'noindex, nofollow');
   return new Response(response.body, { status: response.status, statusText: response.statusText, headers });
 }
@@ -641,6 +675,6 @@ export default {
     } else {
       response = await handleGuide(request, url, env) ?? await env.ASSETS.fetch(request);
     }
-    return withSecurityHeaders(response, env);
+    return withSecurityHeaders(response, env, url.pathname);
   },
 } satisfies ExportedHandler<Env>;
