@@ -1554,5 +1554,3 @@ body { background: #100e16; color: #eeeaf6; }
 .studio-library-retry { justify-self: start; display: inline-flex; align-items: center; gap: 4px; padding: 3px 7px; border: 1px solid #40364e; border-radius: 3px; background: transparent; color: #b6abc6; font: 10px Arial, sans-serif; cursor: pointer; }
 .studio-library-retry:hover { border-color: #766493; color: #f0eafa; }
 .studio-library-picker .showcase-public-picker-copy a { color: #c1a9ff; }
-.studio-library-picker .studio-library-group { margin-top: 6px; }
-.studio-library-group a { color: inherit; text-decoration: underline; text-underline-offset: 2px; }

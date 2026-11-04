@@ -2983,7 +2983,8 @@ export default function ShowcaseEditor({ previewDocument, profileUrl, profileNam
 									{publicScreenshotExpanded && publicScreenshotHasMore && <button className="showcase-public-load-more" type="button" disabled={publicScreenshotsLoading} onClick={() => void loadPublicScreenshots(publicScreenshotNextPage, true)}>{publicScreenshotsLoading && <LoaderCircle size={13} className="spin" aria-hidden="true" />}{publicScreenshotsLoading ? 'Loading more...' : 'Load more screenshots'}</button>}
 								</> : <div className="showcase-public-picker-status">No public screenshots were found on this profile.</div>}
 							</div>}
-							<StudioLibraryPicker key={activeEditor.id} kind={activeEditor.kind} disabled={editorLoading} onChoose={chooseStudioArtwork} />
+							<StudioLibraryPicker key={`studio-${activeEditor.id}`} source="studio" kind={activeEditor.kind} disabled={editorLoading} onChoose={chooseStudioArtwork} />
+							<StudioLibraryPicker key={`demo-${activeEditor.id}`} source="demo" kind={activeEditor.kind} disabled={editorLoading} onChoose={chooseStudioArtwork} />
 							{activeEditor.kind !== 'workshop' && <label className={`showcase-editor-upload ${editorPanelCount > 1 ? 'is-multiple' : ''}`} onDragOver={(event) => event.preventDefault()} onDrop={(event) => { event.preventDefault(); setShowcaseFiles([...event.dataTransfer.files]); }}>
 								{uploadButtonPreview ? <img className="showcase-editor-upload-thumb" src={uploadButtonPreview} alt="" /> : <ImagePlus size={19} />}
 								<span>

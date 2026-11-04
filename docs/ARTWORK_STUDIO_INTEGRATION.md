@@ -152,6 +152,8 @@ Every example on the demo page (`demoartwork.lannahirave.com`, built by
 - Saved copies live in IndexedDB `steamcanvas-saved-artwork`, store `artwork`, key `demo:<id>`. They stay
   until the visitor deletes them in the Studio's Library tab (section 4) or clears site data. If the
   browser refuses to store them, the GIFs are still placed and a note says so.
+- In the showcase editor, **Choose from the demo page** (next to **Choose from Artwork Studio**) lists
+  the saved copies, so an example can be placed again after its showcase was removed.
 - If the ID is not in the manifest (the example was removed and never saved), SteamCanvas says so and
   links to the demo page.
 - The demo site's `_headers` sends `Access-Control-Allow-Origin: *` and

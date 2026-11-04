@@ -2,8 +2,8 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 //
 // Lists the conversions saved in Steam Artwork Studio's Library (in this browser) inside the
-// showcase editor, so they can be placed without downloading and re-selecting the files. Below them
-// come the demo page examples SteamCanvas saved itself (?demo=, utils/savedArtwork.ts).
+// showcase editor, so they can be placed without downloading and re-selecting the files. With
+// source="demo" it lists the demo page examples SteamCanvas saved itself (?demo=, utils/savedArtwork.ts).
 
 import { useEffect, useMemo, useState } from 'react';
 import { Images, LoaderCircle, RotateCcw } from 'lucide-react';
@@ -19,7 +19,10 @@ import { listSavedArtwork, toIncomingArtwork, type SavedArtwork } from '../utils
 
 export type StudioPickerKind = 'workshop' | 'artwork' | 'screenshot' | 'featured-artwork';
 
+export type PickerSource = 'studio' | 'demo';
+
 type Props = {
+  source: PickerSource;
   kind: StudioPickerKind;
   disabled: boolean;
   onChoose: (artwork: IncomingArtwork, startRow: number) => void;
@@ -28,7 +31,27 @@ type Props = {
 type LoadState =
   | { status: 'idle' }
   | { status: 'loading' }
-  | { status: 'ready'; entries: StudioLibraryEntry[]; studioError: string | null; demo: StudioLibraryEntry[] };
+  | { status: 'ready'; entries: StudioLibraryEntry[] }
+  | { status: 'error'; message: string };
+
+const SOURCES = {
+  studio: {
+    label: 'FROM ARTWORK STUDIO',
+    button: 'Choose from Artwork Studio',
+    hint: 'GIFs saved in the Steam Artwork Studio Library of this browser',
+    loading: 'Reading the Artwork Studio Library…',
+    failed: 'Could not read the Steam Artwork Studio Library.',
+    load: listStudioLibrary,
+  },
+  demo: {
+    label: 'FROM THE DEMO PAGE',
+    button: 'Choose from the demo page',
+    hint: 'Examples from the demo page that SteamCanvas saved in this browser',
+    loading: 'Reading the saved examples…',
+    failed: 'Your browser did not let SteamCanvas read the saved examples.',
+    load: async () => (await listSavedArtwork()).map(demoEntry),
+  },
+} satisfies Record<PickerSource, { label: string; button: string; hint: string; loading: string; failed: string; load: () => Promise<StudioLibraryEntry[]> }>;
 
 /** A demo page example saved in this browser, in the shape the list shows. */
 function demoEntry(record: SavedArtwork): StudioLibraryEntry {
@@ -95,7 +118,8 @@ function EntryButton({ entry, problem, disabled, onChoose }: { entry: StudioLibr
   );
 }
 
-export default function StudioLibraryPicker({ kind, disabled, onChoose }: Props) {
+export default function StudioLibraryPicker({ source, kind, disabled, onChoose }: Props) {
+  const text = SOURCES[source];
   const [open, setOpen] = useState(false);
   const [state, setState] = useState<LoadState>({ status: 'idle' });
   const [startRow, setStartRow] = useState(1);
@@ -106,35 +130,27 @@ export default function StudioLibraryPicker({ kind, disabled, onChoose }: Props)
     let active = true;
     void Promise.resolve().then(() => {
       if (active) setState({ status: 'loading' });
-      // The Studio may be unreachable while the demo examples, kept here, still load.
-      return Promise.allSettled([listStudioLibrary(), listSavedArtwork()]);
-    }).then(([studio, saved]) => {
-      if (!active) return;
-      setState({
-        status: 'ready',
-        entries: studio.status === 'fulfilled' ? studio.value : [],
-        studioError: studio.status === 'rejected'
-          ? studio.reason instanceof Error ? studio.reason.message : 'Could not read the Steam Artwork Studio Library.'
-          : null,
-        demo: saved.status === 'fulfilled' ? saved.value.map(demoEntry) : [],
-      });
+      return SOURCES[source].load();
+    }).then((entries) => {
+      if (active) setState({ status: 'ready', entries });
+    }).catch((caught: unknown) => {
+      if (active) setState({ status: 'error', message: caught instanceof Error ? caught.message : SOURCES[source].failed });
     });
     return () => { active = false; };
-  }, [open, revision]);
+  }, [open, revision, source]);
 
-  const ready = state.status === 'ready' ? state : null;
-  const ranked = rank(ready?.entries ?? [], kind, startRow);
-  const demoRanked = rank(ready?.demo ?? [], kind, startRow);
+  const entries = state.status === 'ready' ? state.entries : [];
+  const ranked = rank(entries, kind, startRow);
 
   return (
     <div className="showcase-editor-control-group studio-library-picker">
-      <span className="showcase-editor-label">FROM ARTWORK STUDIO</span>
+      <span className="showcase-editor-label">{text.label}</span>
       {!open ? (
         <button className="showcase-editor-upload studio-library-open" type="button" disabled={disabled} onClick={() => setOpen(true)}>
           <Images size={17} />
           <span>
-            <strong>Choose from Artwork Studio</strong>
-            <small>GIFs saved in this browser: your Studio Library and demo page examples</small>
+            <strong>{text.button}</strong>
+            <small>{text.hint}</small>
           </span>
         </button>
       ) : (
@@ -147,15 +163,16 @@ export default function StudioLibraryPicker({ kind, disabled, onChoose }: Props)
               ))}
             </div>
           )}
-          {state.status === 'loading' && <div className="showcase-public-picker-status" role="status"><LoaderCircle size={14} className="spin" aria-hidden="true" />Reading the Artwork Studio Library…</div>}
-          {ready?.studioError && (
+          {state.status === 'loading' && <div className="showcase-public-picker-status" role="status"><LoaderCircle size={14} className="spin" aria-hidden="true" />{text.loading}</div>}
+          {state.status === 'error' && (
             <div className="showcase-public-picker-status" role="alert">
-              <span>{ready.studioError}</span>
+              <span>{state.message}</span>
               <button className="studio-library-retry" type="button" onClick={() => setRevision((value) => value + 1)}><RotateCcw size={12} /> Retry</button>
             </div>
           )}
-          {ready && !ready.studioError && !ready.entries.length && (
-            <p className="showcase-public-picker-copy">Nothing saved yet. Conversions you make in <a href={ARTWORK_STUDIO_URL} target="_blank" rel="noreferrer">Steam Artwork Studio</a> appear here.</p>
+          {state.status === 'ready' && !entries.length && (source === 'studio'
+            ? <p className="showcase-public-picker-copy">Nothing saved yet. Conversions you make in <a href={ARTWORK_STUDIO_URL} target="_blank" rel="noreferrer">Steam Artwork Studio</a> appear here.</p>
+            : <p className="showcase-public-picker-copy">Nothing saved yet. Press Preview on my Steam profile under an example on the <a href={DEMO_ARTWORK_URL} target="_blank" rel="noreferrer">demo page</a>.</p>
           )}
           {ranked.length > 0 && (
             <div className="studio-library-list">
@@ -164,17 +181,7 @@ export default function StudioLibraryPicker({ kind, disabled, onChoose }: Props)
               ))}
             </div>
           )}
-          {demoRanked.length > 0 && (
-            <>
-              <span className="showcase-editor-label studio-library-group">FROM THE <a href={DEMO_ARTWORK_URL} target="_blank" rel="noreferrer">DEMO PAGE</a></span>
-              <div className="studio-library-list">
-                {demoRanked.map(({ entry, problem }) => (
-                  <EntryButton key={entry.id} entry={entry} problem={problem} disabled={disabled} onChoose={() => entry.artwork && onChoose(entry.artwork, startRow)} />
-                ))}
-              </div>
-            </>
-          )}
-          {ready && (
+          {state.status === 'ready' && (
             <button className="studio-library-retry" type="button" onClick={() => setRevision((value) => value + 1)}><RotateCcw size={12} /> Refresh</button>
           )}
         </>
