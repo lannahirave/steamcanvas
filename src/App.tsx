@@ -146,6 +146,61 @@ function readChangelogSeen(): string | null {
   }
 }
 
+const recentProfilesKey = 'steamcanvas-recent-profiles';
+const maxRecentProfiles = 10;
+
+type RecentProfile = {
+  url: string;
+  name: string;
+  avatar?: string;
+  openedAt: number;
+};
+
+function isRecentProfile(value: unknown): value is RecentProfile {
+  if (!value || typeof value !== 'object') return false;
+  const entry = value as Record<string, unknown>;
+  return typeof entry.url === 'string' && entry.url.startsWith('https://steamcommunity.com/')
+    && typeof entry.name === 'string'
+    && (entry.avatar === undefined || typeof entry.avatar === 'string')
+    && typeof entry.openedAt === 'number';
+}
+
+function readRecentProfiles(): RecentProfile[] {
+  try {
+    const parsed: unknown = JSON.parse(localStorage.getItem(recentProfilesKey) || '[]');
+    return Array.isArray(parsed) ? parsed.filter(isRecentProfile).slice(0, maxRecentProfiles) : [];
+  } catch {
+    return [];
+  }
+}
+
+function writeRecentProfiles(entries: RecentProfile[]) {
+  try {
+    if (entries.length) localStorage.setItem(recentProfilesKey, JSON.stringify(entries));
+    else localStorage.removeItem(recentProfilesKey);
+  } catch {
+    // Storage can be full or blocked; the list is only a convenience.
+  }
+}
+
+/** Steam profile URLs differ only by a trailing slash or letter case in the custom name. */
+function recentProfileKey(url: string): string {
+  return url.replace(/\/+$/, '').toLowerCase();
+}
+
+/** Puts a profile at the top of the list, replacing any older entry for it. */
+function addRecentProfile(entries: RecentProfile[], profile: ProfilePreview): RecentProfile[] {
+  const key = recentProfileKey(profile.url);
+  const entry: RecentProfile = { url: profile.url, name: profile.name || profile.url, openedAt: Date.now() };
+  if (profile.avatar?.startsWith('https://')) entry.avatar = profile.avatar;
+  return [entry, ...entries.filter((item) => recentProfileKey(item.url) !== key)].slice(0, maxRecentProfiles);
+}
+
+/** "steamcommunity.com/id/name" for display. */
+function shortProfileUrl(url: string): string {
+  return url.replace(/^https:\/\/(www\.)?/, '').replace(/\/+$/, '');
+}
+
 const changelogEntries = [
   {
     date: '2026-11-02',
@@ -501,6 +556,7 @@ export default function App() {
   const previewFrame = useRef<HTMLIFrameElement>(null);
   const changelogDialog = useRef<HTMLDialogElement>(null);
   const [changelogSeen, setChangelogSeen] = useState(() => readChangelogSeen() === changelogEntries[0].date);
+  const [recentProfiles, setRecentProfiles] = useState<RecentProfile[]>(readRecentProfiles);
   const exportAssetsRef = useRef<(() => Promise<void>) | null>(null);
   const pendingDraft = useRef<ProjectDraft | null>(null);
   const identifierRef = useRef('');
@@ -792,6 +848,12 @@ export default function App() {
       updateUrlParams({ session: nextSessionId });
       setProfile(loadedProfile);
       if (!draft) setPreviewLevel(loadedProfile.level ?? 0);
+      setRecentProfiles(() => {
+        // Re-read so another open tab's lookups are not overwritten.
+        const next = addRecentProfile(readRecentProfiles(), loadedProfile);
+        writeRecentProfiles(next);
+        return next;
+      });
     } catch (caught) {
       pendingDraft.current = null;
       if (draft) setProjectStatus('Project restore failed');
@@ -799,6 +861,18 @@ export default function App() {
     } finally {
       setLoading(false);
     }
+  }
+
+  function removeRecentProfile(url: string) {
+    const key = recentProfileKey(url);
+    const next = readRecentProfiles().filter((item) => recentProfileKey(item.url) !== key);
+    writeRecentProfiles(next);
+    setRecentProfiles(next);
+  }
+
+  function clearRecentProfiles() {
+    writeRecentProfiles([]);
+    setRecentProfiles([]);
   }
 
   async function loadProfile(event: FormEvent<HTMLFormElement>) {
@@ -1134,6 +1208,44 @@ ${JSON.stringify(draft)}`;
               {savedDraft && !restoringSession && <button className="entry-resume" type="button" onClick={() => void loadProfileByIdentifier(savedDraft.draft.profileIdentifier, savedDraft.draft, savedDraft.sessionId)} disabled={loading}><PanelsTopLeft size={15} /> Resume saved draft</button>}
               {(loading || restoringSession) && <span className="entry-loading"><LoaderCircle className="spin" size={13} /> {restoringSession || pendingDraft.current ? 'Restoring your session' : 'Fetching profile'}</span>}
             </div>
+            {recentProfiles.length > 0 && (
+              <section className="entry-recent" aria-labelledby="entry-recent-title">
+                <div className="entry-recent-heading">
+                  <h2 id="entry-recent-title">Recent profiles</h2>
+                  <button type="button" className="entry-recent-clear" onClick={clearRecentProfiles} disabled={loading}>Clear</button>
+                </div>
+                <ul className="entry-recent-list">
+                  {recentProfiles.map((recent) => (
+                    <li key={recent.url} className="entry-recent-item">
+                      <button
+                        type="button"
+                        className="entry-recent-open"
+                        onClick={() => void loadProfileByIdentifier(recent.url)}
+                        disabled={loading}
+                        title={`Open ${recent.url}`}
+                      >
+                        {recent.avatar
+                          ? <img src={recent.avatar} alt="" width={28} height={28} loading="lazy" referrerPolicy="no-referrer" onError={(event) => { event.currentTarget.style.visibility = 'hidden'; }} />
+                          : <span className="entry-recent-avatar" aria-hidden="true">{recent.name.trim().charAt(0).toUpperCase() || '?'}</span>}
+                        <span className="entry-recent-text">
+                          <span className="entry-recent-name">{recent.name}</span>
+                          <span className="entry-recent-url">{shortProfileUrl(recent.url)}</span>
+                        </span>
+                      </button>
+                      <button
+                        type="button"
+                        className="entry-recent-remove"
+                        onClick={() => removeRecentProfile(recent.url)}
+                        aria-label={`Remove ${recent.name} from recent profiles`}
+                        title="Remove from recent profiles"
+                      >
+                        <X size={13} />
+                      </button>
+                    </li>
+                  ))}
+                </ul>
+              </section>
+            )}
           </div>
 
           <aside className="entry-tools" aria-label="Profile editor features">
