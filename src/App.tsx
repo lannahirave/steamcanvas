@@ -1020,6 +1020,62 @@ ${JSON.stringify(draft)}`;
     }
   }
 
+  // Profile scripts never run (the iframe sandbox has no allow-scripts), so the DOM is final once
+  // parsed. Setting up then, not on the iframe's load event, keeps the editor from waiting for every
+  // badge, game capsule and background video on Steam's CDN (8s+ on busy profiles, or never if one stalls).
+  const initializedPreviewDocuments = useRef(new WeakSet<Document>());
+  const initPreviewDocument = (document: Document | null | undefined) => {
+    if (!document || initializedPreviewDocuments.current.has(document)) return;
+    // Later calls must not re-read the "source" styles from a document the editor has already changed.
+    initializedPreviewDocuments.current.add(document);
+    const restoredDraft = pendingDraft.current;
+    if (document && restoredDraft) {
+      restoreShowcaseArea(document, restoredDraft.showcaseAreaHtml);
+      pendingDraft.current = null;
+    }
+    if (document && !document.querySelector('#steamcanvas-hide-video-controls')) {
+      const style = document.createElement('style');
+      style.id = 'steamcanvas-hide-video-controls';
+      style.textContent = 'video::-webkit-media-controls,video::-webkit-media-controls-enclosure{display:none!important}';
+      document.head.append(style);
+    }
+    const page = previewFrame.current?.contentDocument?.querySelector<HTMLElement>('.no_header.profile_page');
+    const animatedBackground = page?.querySelector<HTMLElement>('.profile_animated_background');
+    const avatarFrameElement = previewFrame.current?.contentDocument?.querySelector<HTMLElement>('.playerAvatarAutoSizeInner .profile_avatar_frame');
+    const avatarFrameImage = avatarFrameElement?.querySelector<HTMLImageElement>('img');
+    const body = document?.body;
+    sourceBodyClass.current = body?.className || '';
+    sourceThemeVariables.current = Object.fromEntries(themeVariableNames.map((property) => [property, {
+      value: body?.style.getPropertyValue(property) || '',
+      priority: body?.style.getPropertyPriority(property) || '',
+    }]));
+    sourceBackgroundStyle.current = page?.getAttribute('style') ?? null;
+    sourceBackgroundVideo.current = animatedBackground ? animatedBackground.cloneNode(true) as HTMLElement : null;
+    sourceAvatarFrame.current = avatarFrameElement ? avatarFrameElement.cloneNode(true) as HTMLElement : null;
+    const poster = animatedBackground?.querySelector<HTMLVideoElement>('video')?.poster;
+    setSourceBackgroundImage(poster ? `url("${poster}")` : page ? getComputedStyle(page).backgroundImage : '');
+    setSourceBackgroundAnimated(Boolean(animatedBackground));
+    setSourceAvatarFrameImage(avatarFrameImage?.currentSrc || avatarFrameImage?.src || '');
+    setShowcaseDocument(document || null);
+    setPreviewLoaded(true);
+  };
+
+  useEffect(() => {
+    if (!profile || previewLoaded) return;
+    let frameId = 0;
+    const poll = () => {
+      const document = previewFrame.current?.contentDocument;
+      // The initial about:blank document is swapped for the srcdoc one; wait for that and its parse.
+      if (document && document.URL === 'about:srcdoc' && document.readyState !== 'loading' && document.querySelector('body')) {
+        initPreviewDocument(document);
+        return;
+      }
+      frameId = requestAnimationFrame(poll);
+    };
+    frameId = requestAnimationFrame(poll);
+    return () => cancelAnimationFrame(frameId);
+  });
+
   return (
     <main className={`app-shell${profile ? ' has-profile' : ''}`}>
       <header className="topbar">
@@ -1209,39 +1265,7 @@ ${JSON.stringify(draft)}`;
                 title={`Steam profile preview for ${profile.name}`}
                 sandbox="allow-same-origin"
                 srcDoc={profile.html}
-                onLoad={() => {
-                  const document = previewFrame.current?.contentDocument;
-                  const restoredDraft = pendingDraft.current;
-                  if (document && restoredDraft) {
-                    restoreShowcaseArea(document, restoredDraft.showcaseAreaHtml);
-                    pendingDraft.current = null;
-                  }
-                  if (document && !document.querySelector('#steamcanvas-hide-video-controls')) {
-                    const style = document.createElement('style');
-                    style.id = 'steamcanvas-hide-video-controls';
-                    style.textContent = 'video::-webkit-media-controls,video::-webkit-media-controls-enclosure{display:none!important}';
-                    document.head.append(style);
-                  }
-                  const page = previewFrame.current?.contentDocument?.querySelector<HTMLElement>('.no_header.profile_page');
-                  const animatedBackground = page?.querySelector<HTMLElement>('.profile_animated_background');
-                  const avatarFrameElement = previewFrame.current?.contentDocument?.querySelector<HTMLElement>('.playerAvatarAutoSizeInner .profile_avatar_frame');
-                  const avatarFrameImage = avatarFrameElement?.querySelector<HTMLImageElement>('img');
-                  const body = document?.body;
-                  sourceBodyClass.current = body?.className || '';
-                  sourceThemeVariables.current = Object.fromEntries(themeVariableNames.map((property) => [property, {
-                    value: body?.style.getPropertyValue(property) || '',
-                    priority: body?.style.getPropertyPriority(property) || '',
-                  }]));
-                  sourceBackgroundStyle.current = page?.getAttribute('style') ?? null;
-                  sourceBackgroundVideo.current = animatedBackground ? animatedBackground.cloneNode(true) as HTMLElement : null;
-                  sourceAvatarFrame.current = avatarFrameElement ? avatarFrameElement.cloneNode(true) as HTMLElement : null;
-                  const poster = animatedBackground?.querySelector<HTMLVideoElement>('video')?.poster;
-                  setSourceBackgroundImage(poster ? `url("${poster}")` : page ? getComputedStyle(page).backgroundImage : '');
-                  setSourceBackgroundAnimated(Boolean(animatedBackground));
-                  setSourceAvatarFrameImage(avatarFrameImage?.currentSrc || avatarFrameImage?.src || '');
-                  setShowcaseDocument(document || null);
-                  setPreviewLoaded(true);
-                }}
+                onLoad={() => initPreviewDocument(previewFrame.current?.contentDocument)}
               />
             ) : (
               <div className="empty-canvas">
