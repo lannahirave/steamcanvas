@@ -1585,6 +1585,11 @@ body { background: #100e16; color: #eeeaf6; }
 .studio-library-copy strong { overflow: hidden; font-size: 11px; font-weight: 600; text-overflow: ellipsis; white-space: nowrap; }
 .studio-library-copy small { color: #a49aaf; font-size: 9px; }
 .studio-library-copy .studio-library-problem { color: #f0b37a; }
+.studio-library-copy .studio-library-notes { display: -webkit-box; overflow: hidden; color: #cfc4dd; font-size: 10px; line-height: 1.35; white-space: pre-line; -webkit-box-orient: vertical; -webkit-line-clamp: 2; line-clamp: 2; }
+.studio-library-search { display: flex; align-items: center; gap: 6px; min-height: 30px; padding: 0 8px; border: 1px solid #40364e; border-radius: 3px; background: #13111a; color: #8f869c; }
+.studio-library-search:focus-within { border-color: #a78bfa; box-shadow: 0 0 0 2px rgb(167 139 250 / 18%); }
+.studio-library-search input { min-width: 0; flex: 1; border: 0; outline: 0; background: transparent; color: #eeeaf6; font: 11px Arial, sans-serif; }
+.studio-library-search input::placeholder { color: #82798f; }
 .studio-library-retry { justify-self: start; display: inline-flex; align-items: center; gap: 4px; padding: 3px 7px; border: 1px solid #40364e; border-radius: 3px; background: transparent; color: #b6abc6; font: 10px Arial, sans-serif; cursor: pointer; }
 .studio-library-retry:hover { border-color: #766493; color: #f0eafa; }
 .studio-library-picker .showcase-public-picker-copy a { color: #c1a9ff; }

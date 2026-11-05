@@ -12,6 +12,7 @@ const protocolVersion = 2;
 const connectTimeoutMs = 15000;
 const requestTimeoutMs = 20000;
 const maxFiles = 15;
+const maxNotesLength = 1000;
 const idPattern = /^[A-Za-z0-9_-]{16,64}$/;
 
 export type ArtworkStudioPreset = 'workshop' | 'showcase' | 'featured';
@@ -36,6 +37,8 @@ export type StudioLibraryEntry = {
   preset: StudioPreset;
   workshopRows: number;
   complete: boolean;
+  /** The user's notes from the Studio's Library tab; empty when there are none. */
+  notes: string;
   files: File[];
   widths: number[];
   heights: number[];
@@ -123,6 +126,8 @@ function parseEntry(data: unknown): StudioLibraryEntry {
     preset,
     workshopRows,
     complete: raw.complete !== false,
+    // Older Studio builds send no notes.
+    notes: typeof raw.notes === 'string' ? raw.notes.slice(0, maxNotesLength) : '',
     files,
     widths,
     heights,

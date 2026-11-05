@@ -6,7 +6,7 @@
 // source="demo" it lists the demo page examples SteamCanvas saved itself (?demo=, utils/savedArtwork.ts).
 
 import { useEffect, useMemo, useState } from 'react';
-import { Images, LoaderCircle, RotateCcw } from 'lucide-react';
+import { Images, LoaderCircle, RotateCcw, Search } from 'lucide-react';
 import {
   ARTWORK_STUDIO_URL,
   describePreset,
@@ -63,12 +63,26 @@ function demoEntry(record: SavedArtwork): StudioLibraryEntry {
     preset: record.preset,
     workshopRows: record.workshopRows,
     complete: true,
+    notes: '',
     files: artwork.files,
     widths: record.files.map((file) => file.width),
     heights: record.files.map((file) => file.height),
     artwork,
     problem: null,
   };
+}
+
+/** Lower-cased, accents removed, so "cafe" finds "Café". */
+function foldForSearch(text: string): string {
+  return text.normalize('NFKD').replace(/\p{Diacritic}/gu, '').toLowerCase();
+}
+
+/** Entries whose notes or name contain every word of the query. */
+function matchesQuery(entry: StudioLibraryEntry, words: string[]): boolean {
+  if (!words.length) return true;
+  const haystack = foldForSearch(`${entry.notes}
+${entry.sourceName}`);
+  return words.every((word) => haystack.includes(word));
 }
 
 function rank(entries: StudioLibraryEntry[], kind: StudioPickerKind, startRow: number) {
@@ -112,6 +126,7 @@ function EntryButton({ entry, problem, disabled, onChoose }: { entry: StudioLibr
       <span className="studio-library-copy">
         <strong>{title}</strong>
         <small>{describePreset(entry)}{date ? ` · ${date}` : ''}{entry.complete ? '' : ' · finished early'}</small>
+        {entry.notes && <small className="studio-library-notes">{entry.notes}</small>}
         {problem && <small className="studio-library-problem">{problem}</small>}
       </span>
     </button>
@@ -124,6 +139,7 @@ export default function StudioLibraryPicker({ source, kind, disabled, onChoose }
   const [state, setState] = useState<LoadState>({ status: 'idle' });
   const [startRow, setStartRow] = useState(1);
   const [revision, setRevision] = useState(0);
+  const [query, setQuery] = useState('');
 
   useEffect(() => {
     if (!open) return;
@@ -140,7 +156,9 @@ export default function StudioLibraryPicker({ source, kind, disabled, onChoose }
   }, [open, revision, source]);
 
   const entries = state.status === 'ready' ? state.entries : [];
-  const ranked = rank(entries, kind, startRow);
+  const words = foldForSearch(query).split(/\s+/).filter(Boolean);
+  const ranked = rank(entries.filter((entry) => matchesQuery(entry, words)), kind, startRow);
+  const searchId = `studio-library-search-${source}`;
 
   return (
     <div className="showcase-editor-control-group studio-library-picker">
@@ -173,6 +191,24 @@ export default function StudioLibraryPicker({ source, kind, disabled, onChoose }
           {state.status === 'ready' && !entries.length && (source === 'studio'
             ? <p className="showcase-public-picker-copy">Nothing saved yet. Conversions you make in <a href={ARTWORK_STUDIO_URL} target="_blank" rel="noreferrer">Steam Artwork Studio</a> appear here.</p>
             : <p className="showcase-public-picker-copy">Nothing saved yet. Press Preview on my Steam profile under an example on the <a href={DEMO_ARTWORK_URL} target="_blank" rel="noreferrer">demo page</a>.</p>
+          )}
+          {state.status === 'ready' && entries.length > 0 && (
+            <div className="studio-library-search">
+              <Search size={13} aria-hidden="true" />
+              <label className="visually-hidden" htmlFor={searchId}>{source === 'studio' ? 'Search by notes or name' : 'Search by name'}</label>
+              <input
+                id={searchId}
+                type="search"
+                value={query}
+                onChange={(event) => setQuery(event.target.value)}
+                placeholder={source === 'studio' ? 'Search notes and names' : 'Search names'}
+                autoComplete="off"
+                spellCheck={false}
+              />
+            </div>
+          )}
+          {state.status === 'ready' && entries.length > 0 && !ranked.length && (
+            <p className="showcase-public-picker-copy" role="status">Nothing matches “{query.trim()}”.{source === 'studio' ? ' Add notes to conversions on the Library tab of Steam Artwork Studio.' : ''}</p>
           )}
           {ranked.length > 0 && (
             <div className="studio-library-list">

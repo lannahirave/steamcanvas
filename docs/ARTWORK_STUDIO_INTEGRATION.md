@@ -94,8 +94,11 @@ All messages are plain objects with `source: 'steam-artwork-studio'` or `source:
 | bridge → SteamCanvas | `get-result` | `{ requestId, entry: Entry }` |
 | bridge → SteamCanvas | `error` | `{ requestId, reason: 'not-found' \| 'storage-unavailable' }` |
 
-`Entry` is `{ id, createdAt, sourceName, preset, workshopParts, workshopRows, complete, files: [{ name, type,
-width, height, blob }] }`. The files are the unpatched preview copies.
+`Entry` is `{ id, createdAt, sourceName, preset, workshopParts, workshopRows, complete, notes, files: [{ name,
+type, width, height, blob }] }`. The files are the unpatched preview copies. `notes` is the text the user typed
+on the Studio's Library tab (up to 1000 characters, empty when there is none); the showcase editor's picker
+searches it together with `sourceName`. Studio builds from before notes existed omit the field, and SteamCanvas
+treats that as empty, so the protocol version stays 2.
 
 `preset` is the Studio preset: `workshop` (5, 10 or 15 parts), `showcase` (Artwork Showcase: main 506 px
 and side 100 px parts), `featured` (one 630 px GIF) or `guide`. Guide covers have no place on a profile,
