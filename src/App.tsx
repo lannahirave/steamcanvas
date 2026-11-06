@@ -21,6 +21,7 @@ import {
   type IncomingArtwork,
 } from './utils/artworkStudioLibrary';
 import { DEMO_ARTWORK_URL, DemoArtworkError, isDemoId, loadDemoArtwork } from './utils/demoArtwork';
+import { dehydrateArtworkUrls, getArtworkBlob, hydrateArtworkUrls, listArtworkAssetIds } from './utils/artworkAssets';
 
 const forkRepositoryUrl = 'https://github.com/lannahirave/steamcanvas';
 const upstreamRepositoryUrl = 'https://github.com/dumbapplee/steamcanvas';
@@ -124,14 +125,18 @@ type ProjectDraft = {
 };
 
 type SavedSession = { sessionId: string | null; draft: ProjectDraft };
-type SessionMeta = { sessionId: string; updatedAt: number; profileIdentifier: string };
+/** assetIds: the artwork files (assets store) this session's draft refers to; absent on older sessions. */
+type SessionMeta = { sessionId: string; updatedAt: number; profileIdentifier: string; assetIds?: string[] };
 
 const projectDatabaseName = 'steamcanvas-projects';
 const projectStoreName = 'drafts';
 const sessionStoreName = 'sessions';
+// Artwork files placed in showcases, keyed by asset id. Drafts refer to them as steamcanvas-asset:<id>
+// (utils/artworkAssets.ts) instead of holding the images as data URLs.
+const assetStoreName = 'assets';
 // Drafts saved before sessions existed live under this key; they are read once and then replaced.
 const legacyAutosaveKey = 'autosave';
-// Drafts hold the showcase images as data URLs, so only the most recent sessions are kept.
+// Only the most recent sessions are kept; their artwork files are deleted with them.
 const maxSavedSessions = 12;
 const sessionIdPattern = /^[A-Za-z0-9_-]{12,64}$/;
 let projectDatabase: Promise<IDBDatabase> | null = null;
@@ -270,11 +275,12 @@ function openProjectDatabase(): Promise<IDBDatabase> {
   if (!projectDatabase) {
     const opening = new Promise<IDBDatabase>((resolve, reject) => {
       let settled = false;
-      const request = indexedDB.open(projectDatabaseName, 2);
+      const request = indexedDB.open(projectDatabaseName, 3);
       request.onupgradeneeded = () => {
         const database = request.result;
         if (!database.objectStoreNames.contains(projectStoreName)) database.createObjectStore(projectStoreName);
         if (!database.objectStoreNames.contains(sessionStoreName)) database.createObjectStore(sessionStoreName, { keyPath: 'sessionId' });
+        if (!database.objectStoreNames.contains(assetStoreName)) database.createObjectStore(assetStoreName);
       };
       request.onsuccess = () => {
         const database = request.result;
@@ -325,6 +331,20 @@ function idbRequest<T>(request: IDBRequest<T>): Promise<T> {
 const editorTitle = 'SteamCanvas — Steam profile preview for Steam Artwork Studio';
 const editorDescription = 'Preview your real Steam profile with new artwork, showcases, avatar, frame, background and theme before changing anything on Steam. Place GIFs from Steam Artwork Studio straight into Artwork, Featured Artwork, Screenshot and Workshop showcases. Free, no ads, saves drafts in your browser.';
 
+/** cyrb53: a fast 53-bit string hash, so autosave can tell "unchanged" without keeping a copy of the draft. */
+function hashText(text: string): string {
+  let h1 = 0xdeadbeef;
+  let h2 = 0x41c6ce57;
+  for (let index = 0; index < text.length; index += 1) {
+    const code = text.charCodeAt(index);
+    h1 = Math.imul(h1 ^ code, 2654435761);
+    h2 = Math.imul(h2 ^ code, 1597334677);
+  }
+  h1 = Math.imul(h1 ^ (h1 >>> 16), 2246822507) ^ Math.imul(h2 ^ (h2 >>> 13), 3266489909);
+  h2 = Math.imul(h2 ^ (h2 >>> 16), 2246822507) ^ Math.imul(h1 ^ (h1 >>> 13), 3266489909);
+  return (4294967296 * (2097151 & h2) + (h1 >>> 0)).toString(36);
+}
+
 function createSessionId(): string {
   const bytes = crypto.getRandomValues(new Uint8Array(12));
   return btoa(String.fromCharCode(...bytes)).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
@@ -369,22 +389,51 @@ async function readLatestDraft(): Promise<SavedSession | null> {
   return isProjectDraft(draft) ? { sessionId: latest ? latest.sessionId : null, draft } : null;
 }
 
+/** Swaps a saved draft's asset tokens (and any base64 images from older drafts) for blob URLs. */
+async function hydrateDraft(draft: ProjectDraft): Promise<ProjectDraft> {
+  const ids = listArtworkAssetIds(draft.showcaseAreaHtml);
+  const blobs = new Map<string, Blob>();
+  if (ids.length) {
+    const database = await openProjectDatabase();
+    const assets = database.transaction(assetStoreName, 'readonly').objectStore(assetStoreName);
+    await Promise.all(ids.map(async (id) => {
+      const blob = await idbRequest(assets.get(id));
+      if (blob instanceof Blob) blobs.set(id, blob);
+    }));
+  }
+  return { ...draft, showcaseAreaHtml: await hydrateArtworkUrls(draft.showcaseAreaHtml, blobs) };
+}
+
 async function writeSessionDraft(sessionId: string, draft: ProjectDraft): Promise<void> {
   const database = await openProjectDatabase();
+  const assetIds = listArtworkAssetIds(draft.showcaseAreaHtml);
   return new Promise((resolve, reject) => {
-    const transaction = database.transaction([projectStoreName, sessionStoreName], 'readwrite');
+    const transaction = database.transaction([projectStoreName, sessionStoreName, assetStoreName], 'readwrite');
     const drafts = transaction.objectStore(projectStoreName);
     const sessions = transaction.objectStore(sessionStoreName);
+    const assets = transaction.objectStore(assetStoreName);
     drafts.put(draft, sessionId);
     drafts.delete(legacyAutosaveKey);
-    sessions.put({ sessionId, updatedAt: Date.now(), profileIdentifier: draft.profileIdentifier } satisfies SessionMeta);
-    const all = sessions.getAll();
-    all.onsuccess = () => {
-      const stale = (all.result as SessionMeta[]).sort((left, right) => right.updatedAt - left.updatedAt).slice(maxSavedSessions);
-      for (const session of stale) {
-        drafts.delete(session.sessionId);
-        sessions.delete(session.sessionId);
+    sessions.put({ sessionId, updatedAt: Date.now(), profileIdentifier: draft.profileIdentifier, assetIds } satisfies SessionMeta);
+    // Files are written once; later saves of the same draft only update the small HTML.
+    const storedKeys = assets.getAllKeys();
+    storedKeys.onsuccess = () => {
+      const stored = new Set(storedKeys.result.map(String));
+      for (const id of assetIds) {
+        const blob = getArtworkBlob(id);
+        if (!stored.has(id) && blob) assets.put(blob, id);
       }
+      const all = sessions.getAll();
+      all.onsuccess = () => {
+        const ordered = (all.result as SessionMeta[]).sort((left, right) => right.updatedAt - left.updatedAt);
+        for (const session of ordered.slice(maxSavedSessions)) {
+          drafts.delete(session.sessionId);
+          sessions.delete(session.sessionId);
+        }
+        // Drop files no kept session refers to (removed artwork, pruned sessions).
+        const referenced = new Set(ordered.slice(0, maxSavedSessions).flatMap((session) => session.assetIds || []));
+        for (const id of stored) if (!referenced.has(id)) assets.delete(id);
+      };
     };
     transaction.oncomplete = () => resolve();
     transaction.onerror = () => reject(transaction.error || new Error('Could not save the project locally.'));
@@ -836,6 +885,9 @@ export default function App() {
     sourceThemeVariables.current = {};
 
     try {
+      // The draft's artwork files are read from storage while the profile downloads.
+      const hydrating = draft ? hydrateDraft(draft) : null;
+      hydrating?.catch(() => undefined);
       const response = await fetch('/api/profile', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -843,6 +895,7 @@ export default function App() {
       });
       const result = await response.json();
       if (!response.ok) throw new Error(result.error || 'Could not load this profile.');
+      if (hydrating) pendingDraft.current = await hydrating;
       const loadedProfile = result as ProfilePreview;
       sessionIdRef.current = nextSessionId;
       updateUrlParams({ session: nextSessionId });
@@ -880,13 +933,15 @@ export default function App() {
     await loadProfileByIdentifier(identifier);
   }
 
-  function createProjectDraft(document: Document): ProjectDraft {
+  /** forStorage: artwork blob URLs become asset tokens; leave it off to rebuild the preview in this tab. */
+  function createProjectDraft(document: Document, forStorage = true): ProjectDraft {
     if (!profile) throw new Error('Load a profile before exporting a project.');
+    const html = serializeShowcaseArea(document);
     return {
       format: 'steamcanvas-project',
       version: 1,
       profileIdentifier: profile.url,
-      showcaseAreaHtml: serializeShowcaseArea(document),
+      showcaseAreaHtml: forStorage ? dehydrateArtworkUrls(html).html : html,
       removedShowcases,
       settings: { avatarEdit, avatarFrame, background, backgroundSize, profileTheme, previewLevel },
     };
@@ -908,7 +963,7 @@ export default function App() {
     if (!profile || !previewLoaded || loading || !showcaseDocument) return;
     let draft: ProjectDraft;
     try {
-      draft = createProjectDraft(showcaseDocument);
+      draft = createProjectDraft(showcaseDocument, false);
     } catch {
       setProjectStatus('Could not reload the preview');
       return;
@@ -1001,8 +1056,7 @@ export default function App() {
           const serializeStart = performance.now();
           const draft = createProjectDraft(showcaseDocument);
           // Only the serialized draft matters: skip the write (and the status flicker) when it is what we saved last.
-          const key = `${sessionId}
-${JSON.stringify(draft)}`;
+          const key = `${sessionId}:${hashText(JSON.stringify(draft))}`;
           const unchanged = key === lastSavedKeyRef.current;
           const serializeMs = performance.now() - serializeStart;
           if (autosaveDebug) {

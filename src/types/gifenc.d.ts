@@ -15,6 +15,8 @@ declare module 'gifenc' {
 		}): void;
 		finish(): void;
 		bytes(): Uint8Array;
+		/** The encoded bytes without the copy bytes() makes. */
+		bytesView(): Uint8Array<ArrayBuffer>;
 	};
 
 	export function GIFEncoder(options?: { initialCapacity?: number; auto?: boolean }): GifEncoder;

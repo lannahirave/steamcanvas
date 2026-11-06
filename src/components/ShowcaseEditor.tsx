@@ -10,7 +10,8 @@ import StudioLibraryPicker from './StudioLibraryPicker';
 import type { ProfileBackgroundSize } from './BackgroundPicker';
 import { Camera, ChevronLeft, ChevronRight, Download, GripHorizontal, Hammer, ImagePlus, LoaderCircle, Pencil, Plus, RotateCcw, Search, Star, Trash2, X } from 'lucide-react';
 import JSZip from 'jszip';
-import { decompressFrames, parseGIF, type ParsedFrame } from 'gifuct-js';
+import { decompressFrame, parseGIF, type ParsedFrame, type ParsedGif } from 'gifuct-js';
+import { canvasToArtworkUrl, createArtworkUrl, isLocalImageUrl, localImageSubtype } from '../utils/artworkAssets';
 import { applyPalette, GIFEncoder, quantize } from 'gifenc';
 
 type ShowcaseKind = 'artwork' | 'featured-artwork' | 'screenshot' | 'workshop' | 'other';
@@ -148,13 +149,9 @@ type TransparentResizeGesture = {
 	handle: HTMLButtonElement;
 };
 
-function readImageFile(file: File): Promise<string> {
-	return new Promise((resolve, reject) => {
-		const reader = new FileReader();
-		reader.onload = () => typeof reader.result === 'string' ? resolve(reader.result) : reject(new Error('Could not read image.'));
-		reader.onerror = () => reject(new Error('Could not read image.'));
-		reader.readAsDataURL(file);
-	});
+/** A blob URL for the file. Never a data URL: see utils/artworkAssets.ts. */
+async function readImageFile(file: File): Promise<string> {
+	return createArtworkUrl(file);
 }
 
 function getBackgroundUrl(value: string): string | null {
@@ -427,11 +424,11 @@ function setWorkshopShowcaseRows(entry: ShowcaseEntry, rows: WorkshopRows): void
 function readUploadedAssets(element: HTMLElement, kind: ShowcaseKind, title: string): Array<{ name: string; url: string }> {
 	const baseName = title.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '').slice(0, 80) || 'showcase-artwork';
 	return getShowcaseImages(element, kind)
-		.filter((image) => !image.closest('[data-steamcanvas-empty-slot]') && /^data:image\//i.test(image.currentSrc || image.src))
+		.filter((image) => !image.closest('[data-steamcanvas-empty-slot]') && isLocalImageUrl(image.currentSrc || image.src))
 		.map((image, index) => {
 			const url = image.currentSrc || image.src;
-			const mime = url.match(/^data:image\/([^;,]+)/i)?.[1]?.toLowerCase() || 'png';
-			const extension = mime === 'jpeg' ? 'jpg' : mime.split('+')[0];
+			const mime = localImageSubtype(url);
+			const extension = mime === 'jpeg' ? 'jpg' : mime;
 			const suffix = kind === 'featured-artwork' ? '' : kind === 'workshop' ? `-${index + 1}` : `-${index === 0 ? 'main' : index === 1 ? 'side' : `side-${index}`}`;
 			return { name: `${baseName}${suffix}.${extension}`, url };
 		});
@@ -652,12 +649,7 @@ function makeWorkshopShowcase(document: Document): HTMLElement {
 }
 
 async function splitArtworkMosaic(file: File, layout: ArtworkLayout = 'main-side'): Promise<ArtworkMosaic> {
-	const dataUrl = await new Promise<string>((resolve, reject) => {
-		const reader = new FileReader();
-		reader.onload = () => typeof reader.result === 'string' ? resolve(reader.result) : reject(new Error('Could not read artwork image.'));
-		reader.onerror = () => reject(new Error('Could not read artwork image.'));
-		reader.readAsDataURL(file);
-	});
+	const dataUrl = await readImageFile(file);
 
 	const image = new Image();
 	image.src = dataUrl;
@@ -687,7 +679,7 @@ async function splitArtworkMosaic(file: File, layout: ArtworkLayout = 'main-side
 	if (file.type === 'image/gif' || file.type === 'image/apng' || /\.(gif|apng)$/i.test(file.name)) {
 		return {
 			images: Array(panelRegions.length).fill(dataUrl),
-			previewImages: cropImagePreview(image, compositeWidth, compositeHeight, panelRegions),
+			previewImages: await cropImagePreview(image, compositeWidth, compositeHeight, panelRegions),
 			panelDimensions: panelRegions.map(({ width, height }) => ({ width, height })),
 			animated: {
 				width: compositeWidth,
@@ -713,22 +705,17 @@ async function splitArtworkMosaic(file: File, layout: ArtworkLayout = 'main-side
 		const tileContext = tile.getContext('2d');
 		if (!tileContext) throw new Error('Could not prepare an artwork tile.');
 		tileContext.drawImage(composite, x, y, width, height, 0, 0, width, height);
-		return tile.toDataURL('image/png');
+		return canvasToArtworkUrl(tile);
 	};
 
 	return {
-		images: panelRegions.map(extractTile),
+		images: await Promise.all(panelRegions.map(extractTile)),
 		panelDimensions: panelRegions.map(({ width, height }) => ({ width, height })),
 	};
 }
 
 async function splitWorkshopMosaic(file: File): Promise<ArtworkMosaic> {
-	const dataUrl = await new Promise<string>((resolve, reject) => {
-		const reader = new FileReader();
-		reader.onload = () => typeof reader.result === 'string' ? resolve(reader.result) : reject(new Error('Could not read workshop image.'));
-		reader.onerror = () => reject(new Error('Could not read workshop image.'));
-		reader.readAsDataURL(file);
-	});
+	const dataUrl = await readImageFile(file);
 	const image = new Image();
 	image.src = dataUrl;
 	await image.decode();
@@ -741,7 +728,7 @@ async function splitWorkshopMosaic(file: File): Promise<ArtworkMosaic> {
 	const isApng = file.type === 'image/apng' || /\.apng$/i.test(file.name);
 	if (isGif || isApng) {
 		const panelRegions = panelWidths.map((panelWidth, index) => ({ x: panelWidths.slice(0, index).reduce((sum, size) => sum + size, 0), y: 0, width: panelWidth, height }));
-		return { images: Array(panelCount).fill(dataUrl), previewImages: cropImagePreview(image, width, height, panelRegions), panelDimensions: panelWidths.map((panelWidth) => ({ width: panelWidth, height })), animated: { width, height, mainWidth: panelWidths[0], panelWidths, format: isGif ? 'gif' : 'apng' } };
+		return { images: Array(panelCount).fill(dataUrl), previewImages: await cropImagePreview(image, width, height, panelRegions), panelDimensions: panelWidths.map((panelWidth) => ({ width: panelWidth, height })), animated: { width, height, mainWidth: panelWidths[0], panelWidths, format: isGif ? 'gif' : 'apng' } };
 	}
 
 	const canvas = document.createElement('canvas');
@@ -760,7 +747,7 @@ async function splitWorkshopMosaic(file: File): Promise<ArtworkMosaic> {
 		const panelContext = panel.getContext('2d');
 		if (!panelContext) throw new Error('Could not prepare a workshop image panel.');
 		panelContext.drawImage(canvas, sourceX, 0, panelWidth, height, 0, 0, panelWidth, height);
-		panels.push(panel.toDataURL('image/png'));
+		panels.push(await canvasToArtworkUrl(panel));
 		sourceX += panelWidth;
 	}
 	return { images: panels, panelDimensions: panelWidths.map((panelWidth) => ({ width: panelWidth, height })) };
@@ -780,15 +767,6 @@ async function splitWorkshopRows(files: File[]): Promise<ArtworkMosaic> {
 	};
 }
 
-function readBlobDataUrl(blob: Blob): Promise<string> {
-	return new Promise((resolve, reject) => {
-		const reader = new FileReader();
-		reader.onload = () => typeof reader.result === 'string' ? resolve(reader.result) : reject(new Error('Could not export animated artwork.'));
-		reader.onerror = () => reject(new Error('Could not export animated artwork.'));
-		reader.readAsDataURL(blob);
-	});
-}
-
 async function prepareWorkshopImageForLongUpload(blob: Blob): Promise<Blob> {
 	const buffer = await blob.arrayBuffer();
 	if (buffer.byteLength === 0) throw new Error('Could not prepare an empty image for Workshop upload.');
@@ -798,8 +776,11 @@ async function prepareWorkshopImageForLongUpload(blob: Blob): Promise<Blob> {
 
 async function encodeAnimatedMosaic(file: File, mosaic: NonNullable<ArtworkMosaic['animated']>): Promise<string[]> {
 	const parsed = parseGIF(await file.arrayBuffer());
-	const frames = decompressFrames(parsed, true);
-	if (!frames.length) throw new Error('This GIF has no decodable frames.');
+	// Frames are decoded one at a time in the loop below. decompressFrames(parsed, true) would build an
+	// RGBA patch for every frame up front: 150 frames of a 630×1120 GIF is ~420 MB at once.
+	type ImageFrame = Extract<ParsedGif['frames'][number], { image: unknown }>;
+	const rawFrames = parsed.frames.filter((frame): frame is ImageFrame => 'image' in frame && !!frame.image);
+	if (!rawFrames.length) throw new Error('This GIF has no decodable frames.');
 
 	const scale = mosaic.width / parsed.lsd.width;
 	const mainCanvas = document.createElement('canvas');
@@ -826,7 +807,7 @@ async function encodeAnimatedMosaic(file: File, mosaic: NonNullable<ArtworkMosai
 	const panelContexts = panelCanvases.map((canvas) => canvas.getContext('2d', { willReadFrequently: true }));
 	if (panelContexts.some((context) => !context)) throw new Error('Could not prepare animated mosaic panels.');
 
-	const hasTransparency = frames.some((frame) => frame.transparentIndex >= 0);
+	const hasTransparency = rawFrames.some((frame) => !!frame.gce?.extras.transparentColorGiven);
 	const backgroundColor = parsed.gct[parsed.lsd.backgroundColorIndex] || [255, 255, 255];
 	if (!hasTransparency) {
 		mainContext.fillStyle = `rgb(${backgroundColor[0]}, ${backgroundColor[1]}, ${backgroundColor[2]})`;
@@ -891,7 +872,8 @@ async function encodeAnimatedMosaic(file: File, mosaic: NonNullable<ArtworkMosai
 		return { palette: transparent ? [...opaquePalette, [0, 0, 0]] : opaquePalette, indexed, transparentIndex };
 	}
 
-	for (const [frameIndex, frame] of frames.entries()) {
+	for (const [frameIndex, rawFrame] of rawFrames.entries()) {
+		const frame = decompressFrame(rawFrame, parsed.gct, true);
 		if (previousFrame?.disposalType === 2) {
 			const { left, top, width, height } = previousFrame.dims;
 			const x = Math.round(left * scale);
@@ -944,13 +926,11 @@ async function encodeAnimatedMosaic(file: File, mosaic: NonNullable<ArtworkMosai
 		restorePrevious = restoreCurrent;
 	}
 
-	return Promise.all(encoders.map(async (encoder) => {
+	return encoders.map((encoder) => {
 		encoder.finish();
-		const encoded = encoder.bytes();
-		const buffer = new ArrayBuffer(encoded.byteLength);
-		new Uint8Array(buffer).set(encoded);
-		return readBlobDataUrl(new Blob([buffer], { type: 'image/gif' }));
-	}));
+		// bytesView() is the encoder's own buffer; the Blob copies it, so no extra ArrayBuffer is needed.
+		return createArtworkUrl(new Blob([encoder.bytesView()], { type: 'image/gif' }));
+	});
 }
 
 function isPublicScreenshot(source: EditorSource): source is PublicScreenshot {
@@ -1448,12 +1428,12 @@ export default function ShowcaseEditor({ previewDocument, profileUrl, profileNam
 				if (!exportedImage) continue;
 				let assetPath = exportedImagePaths.get(sourceImage);
 				const sourceUrl = sourceImage.getAttribute('src') || '';
-				if (!assetPath && /^data:image\//i.test(sourceUrl)) {
+				if (!assetPath && isLocalImageUrl(sourceUrl)) {
 					assetPath = inlineAssetPaths.get(sourceUrl);
 					if (!assetPath) {
 						const response = await fetch(sourceUrl);
 						if (!response.ok) throw new Error('Could not save an embedded profile image.');
-						const mime = sourceUrl.match(/^data:image\/([^;,]+)/i)?.[1]?.split('+')[0]?.toLowerCase() || 'png';
+						const mime = localImageSubtype(sourceUrl);
 						const extension = mime === 'jpeg' ? 'jpg' : /^[a-z0-9]+$/.test(mime) ? mime : 'png';
 						assetPath = `Profile Assets/image-${String(++inlineAssetIndex).padStart(3, '0')}.${extension}`;
 						archive.file(assetPath, await response.blob());
@@ -2438,12 +2418,7 @@ export default function ShowcaseEditor({ previewDocument, profileUrl, profileNam
 				? await splitArtworkMosaic(files[0] as File, layout)
 				: entry.kind === 'workshop'
 					? await splitWorkshopMosaic(files[0] as File)
-					: { images: [await new Promise<string>((resolve, reject) => {
-					const reader = new FileReader();
-					reader.onload = () => typeof reader.result === 'string' ? resolve(reader.result) : reject(new Error('Could not read artwork image.'));
-					reader.onerror = () => reject(new Error('Could not read artwork image.'));
-					reader.readAsDataURL(files[0] as File);
-				})] };
+					: { images: [await readImageFile(files[0] as File)] };
 			if (workshopRowUploads && mosaic.animatedRows?.some((row) => row.mosaic.format === 'apng')) {
 				setEditorError('Multi-row Workshop exports support static images and GIFs. Convert APNG files to GIF or use static images.');
 				return false;
@@ -3023,20 +2998,20 @@ async function readPreviewPanel(source: EditorSource): Promise<PreviewPanel> {
 	return { src, width: image.naturalWidth || 16, height: image.naturalHeight || Math.round(16 / (isPublicScreenshot(source) ? source.aspectRatio || 1.7778 : 1.7778)) };
 }
 
-function cropImagePreview(image: HTMLImageElement, width: number, height: number, regions: Array<{ x: number; y: number; width: number; height: number }>): string[] {
+function cropImagePreview(image: HTMLImageElement, width: number, height: number, regions: Array<{ x: number; y: number; width: number; height: number }>): Promise<string[]> {
 	const composite = document.createElement('canvas');
 	composite.width = width;
 	composite.height = height;
 	const context = composite.getContext('2d');
 	if (!context) throw new Error('Could not prepare the image preview.');
 	context.drawImage(image, 0, 0, width, height);
-	return regions.map(({ x, y, width: panelWidth, height: panelHeight }) => {
+	return Promise.all(regions.map(({ x, y, width: panelWidth, height: panelHeight }) => {
 		const panel = document.createElement('canvas');
 		panel.width = panelWidth;
 		panel.height = panelHeight;
 		const panelContext = panel.getContext('2d');
 		if (!panelContext) throw new Error('Could not prepare a panel preview.');
 		panelContext.drawImage(composite, x, y, panelWidth, panelHeight, 0, 0, panelWidth, panelHeight);
-		return panel.toDataURL('image/png');
-	});
+		return canvasToArtworkUrl(panel);
+	}));
 }
