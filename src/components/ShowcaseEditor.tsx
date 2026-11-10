@@ -11,7 +11,7 @@ import type { ProfileBackgroundSize } from './BackgroundPicker';
 import { Camera, ChevronLeft, ChevronRight, Download, GripHorizontal, Hammer, ImagePlus, LoaderCircle, Pencil, Plus, RotateCcw, Search, Star, Trash2, X } from 'lucide-react';
 import JSZip from 'jszip';
 import { decompressFrame, parseGIF, type ParsedFrame, type ParsedGif } from 'gifuct-js';
-import { canvasToArtworkUrl, createArtworkUrl, isLocalImageUrl, localImageSubtype } from '../utils/artworkAssets';
+import { canvasToArtworkUrl, collectBlobUrls, createArtworkUrl, isLocalImageUrl, localImageSubtype, retainArtworkUrls, setArtworkBusy } from '../utils/artworkAssets';
 import { applyPalette, GIFEncoder, quantize } from 'gifenc';
 
 type ShowcaseKind = 'artwork' | 'featured-artwork' | 'screenshot' | 'workshop' | 'other';
@@ -993,6 +993,23 @@ export default function ShowcaseEditor({ previewDocument, profileUrl, profileNam
 	const backgroundImageUrlRef = useRef(backgroundImageUrl);
 	backgroundImageUrlRef.current = backgroundImageUrl;
 	const suppressClickRef = useRef(false);
+
+	// Artwork in editor state (export files, mosaic sources, and the open editor's previews) is kept in memory
+	// while it is used; the rest is released by the sweep in utils/artworkAssets.ts. A closed editor's
+	// previews stay in state until it opens again, so they only count while it is open. Nothing is released
+	// while work runs.
+	useEffect(() => {
+		const previews = editingId ? [workshopRowPreviews, editorPreview, uploadButtonPreview] : [];
+		retainArtworkUrls('showcase-editor', collectBlobUrls([entries, previews]));
+	}, [entries, editingId, workshopRowPreviews, editorPreview, uploadButtonPreview]);
+	useEffect(() => {
+		setArtworkBusy('showcase-editor', editorLoading || !!exportingShowcaseId || !!backgroundResizingId);
+	}, [editorLoading, exportingShowcaseId, backgroundResizingId]);
+	useEffect(() => () => {
+		retainArtworkUrls('showcase-editor', []);
+		setArtworkBusy('showcase-editor', false);
+		setArtworkBusy('showcase-incoming', false);
+	}, []);
 
 	function createOverlayHost(document: Document, parent: HTMLElement, name: string): HTMLElement {
 		if (document.defaultView?.getComputedStyle(parent).position === 'static') parent.style.position = 'relative';
@@ -2652,6 +2669,8 @@ export default function ShowcaseEditor({ previewDocument, profileUrl, profileNam
 			: incomingArtwork.files;
 		const mode: ImageInputMode = kind === 'featured-artwork' ? 'composite' : 'separate';
 
+		// Placing runs outside the editor, so it holds off the artwork sweep itself.
+		setArtworkBusy('showcase-incoming', true);
 		void (async () => {
 			const entry = entries.find((item) => item.kind === kind) || createShowcase(kind);
 			if (!entry) {
@@ -2668,7 +2687,7 @@ export default function ShowcaseEditor({ previewDocument, profileUrl, profileNam
 			} else {
 				onIncomingArtworkApplied?.({ ok: false, message: 'SteamCanvas could not place these GIFs. Open the showcase editor and select the files from the Studio ZIP instead.' });
 			}
-		})();
+		})().finally(() => setArtworkBusy('showcase-incoming', false));
 	// Runs once per handoff when the scanned entries are ready; later entry changes must not re-apply it.
 	}, [incomingArtwork, previewDocument, entriesDocument]);
 

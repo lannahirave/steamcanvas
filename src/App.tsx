@@ -21,7 +21,7 @@ import {
   type IncomingArtwork,
 } from './utils/artworkStudioLibrary';
 import { DEMO_ARTWORK_URL, DemoArtworkError, isDemoId, loadDemoArtwork } from './utils/demoArtwork';
-import { dehydrateArtworkUrls, getArtworkBlob, hydrateArtworkUrls, listArtworkAssetIds } from './utils/artworkAssets';
+import { dehydrateArtworkUrls, getArtworkBlob, hydrateArtworkUrls, listArtworkAssetIds, scheduleArtworkSweep, setArtworkRoots, sweepArtwork } from './utils/artworkAssets';
 
 const forkRepositoryUrl = 'https://github.com/lannahirave/steamcanvas';
 const upstreamRepositoryUrl = 'https://github.com/dumbapplee/steamcanvas';
@@ -389,9 +389,19 @@ async function readLatestDraft(): Promise<SavedSession | null> {
   return isProjectDraft(draft) ? { sessionId: latest ? latest.sessionId : null, draft } : null;
 }
 
-/** Swaps a saved draft's asset tokens (and any base64 images from older drafts) for blob URLs. */
+/** Asset ids in the showcase area and in removed showcases, which can be restored from the trash. */
+function draftAssetIds(draft: ProjectDraft): string[] {
+  const html = [draft.showcaseAreaHtml, ...(draft.removedShowcases || []).map((showcase) => showcase.html)];
+  return [...new Set(html.flatMap(listArtworkAssetIds))];
+}
+
+/**
+ * Swaps a saved draft's asset tokens (and any base64 images from older drafts) for blob URLs, in the
+ * showcase area and in removed showcases. Rejects if a file is missing (hydrateArtworkUrls) rather than
+ * restore broken images that autosave would then keep.
+ */
 async function hydrateDraft(draft: ProjectDraft): Promise<ProjectDraft> {
-  const ids = listArtworkAssetIds(draft.showcaseAreaHtml);
+  const ids = draftAssetIds(draft);
   const blobs = new Map<string, Blob>();
   if (ids.length) {
     const database = await openProjectDatabase();
@@ -401,24 +411,43 @@ async function hydrateDraft(draft: ProjectDraft): Promise<ProjectDraft> {
       if (blob instanceof Blob) blobs.set(id, blob);
     }));
   }
-  return { ...draft, showcaseAreaHtml: await hydrateArtworkUrls(draft.showcaseAreaHtml, blobs) };
+  const [showcaseAreaHtml, ...removedHtml] = await Promise.all([
+    hydrateArtworkUrls(draft.showcaseAreaHtml, blobs),
+    ...(draft.removedShowcases || []).map((showcase) => hydrateArtworkUrls(showcase.html, blobs)),
+  ]);
+  return {
+    ...draft,
+    showcaseAreaHtml,
+    ...(draft.removedShowcases ? { removedShowcases: draft.removedShowcases.map((showcase, index) => ({ ...showcase, html: removedHtml[index] })) } : {}),
+  };
 }
 
+/**
+ * Saves the draft. A referenced file that is neither stored nor in memory aborts the save, so a draft
+ * with broken images never replaces a good one.
+ */
 async function writeSessionDraft(sessionId: string, draft: ProjectDraft): Promise<void> {
   const database = await openProjectDatabase();
-  const assetIds = listArtworkAssetIds(draft.showcaseAreaHtml);
+  // Removed showcases count too: they can be restored from the trash after a reload.
+  const assetIds = draftAssetIds(draft);
   return new Promise((resolve, reject) => {
     const transaction = database.transaction([projectStoreName, sessionStoreName, assetStoreName], 'readwrite');
     const drafts = transaction.objectStore(projectStoreName);
     const sessions = transaction.objectStore(sessionStoreName);
     const assets = transaction.objectStore(assetStoreName);
-    drafts.put(draft, sessionId);
-    drafts.delete(legacyAutosaveKey);
-    sessions.put({ sessionId, updatedAt: Date.now(), profileIdentifier: draft.profileIdentifier, assetIds } satisfies SessionMeta);
+    let missing = 0;
     // Files are written once; later saves of the same draft only update the small HTML.
     const storedKeys = assets.getAllKeys();
     storedKeys.onsuccess = () => {
       const stored = new Set(storedKeys.result.map(String));
+      missing = assetIds.filter((id) => !stored.has(id) && !getArtworkBlob(id)).length;
+      if (missing) {
+        transaction.abort();
+        return;
+      }
+      drafts.put(draft, sessionId);
+      drafts.delete(legacyAutosaveKey);
+      sessions.put({ sessionId, updatedAt: Date.now(), profileIdentifier: draft.profileIdentifier, assetIds } satisfies SessionMeta);
       for (const id of assetIds) {
         const blob = getArtworkBlob(id);
         if (!stored.has(id) && blob) assets.put(blob, id);
@@ -437,7 +466,9 @@ async function writeSessionDraft(sessionId: string, draft: ProjectDraft): Promis
     };
     transaction.oncomplete = () => resolve();
     transaction.onerror = () => reject(transaction.error || new Error('Could not save the project locally.'));
-    transaction.onabort = () => reject(transaction.error || new Error('Could not save the project locally.'));
+    transaction.onabort = () => reject(missing
+      ? new Error(`Autosave skipped: ${missing} image${missing === 1 ? ' is' : 's are'} missing.`)
+      : transaction.error || new Error('Could not save the project locally.'));
   });
 }
 
@@ -608,6 +639,8 @@ export default function App() {
   const [recentProfiles, setRecentProfiles] = useState<RecentProfile[]>(readRecentProfiles);
   const exportAssetsRef = useRef<(() => Promise<void>) | null>(null);
   const pendingDraft = useRef<ProjectDraft | null>(null);
+  // Read by the artwork sweep, which runs outside React's render cycle.
+  const artworkRoots = useRef<{ document: Document | null; removed: RemovedShowcase[] }>({ document: null, removed: [] });
   const identifierRef = useRef('');
   const sourceBackgroundStyle = useRef<string | null>(null);
   const sourceBackgroundVideo = useRef<HTMLElement | null>(null);
@@ -869,7 +902,8 @@ export default function App() {
     setProfile(null);
     setPreviewLoaded(false);
     setShowcaseDocument(null);
-    setRemovedShowcases(draft?.removedShowcases || []);
+    // Removed showcases hold asset tokens until hydrated; they are set below with blob URLs.
+    setRemovedShowcases([]);
     setAvatarEdit(draft?.settings.avatarEdit || DEFAULT_AVATAR_EDIT);
     setAvatarFrame(draft?.settings.avatarFrame || null);
     setBackground(draft?.settings.background || null);
@@ -895,7 +929,11 @@ export default function App() {
       });
       const result = await response.json();
       if (!response.ok) throw new Error(result.error || 'Could not load this profile.');
-      if (hydrating) pendingDraft.current = await hydrating;
+      if (hydrating) {
+        const restored = await hydrating;
+        pendingDraft.current = restored;
+        setRemovedShowcases(restored.removedShowcases || []);
+      }
       const loadedProfile = result as ProfilePreview;
       sessionIdRef.current = nextSessionId;
       updateUrlParams({ session: nextSessionId });
@@ -934,6 +972,26 @@ export default function App() {
   }
 
   /** forStorage: artwork blob URLs become asset tokens; leave it off to rebuild the preview in this tab. */
+  /** Reads the saved session again rather than the copy cached at startup: another tab may have saved since. */
+  async function resumeSavedDraft(cached: SavedSession) {
+    if (loading) return;
+    setError('');
+    try {
+      const current = cached.sessionId
+        ? { sessionId: cached.sessionId, draft: await readSessionDraft(cached.sessionId) }
+        : await readLatestDraft();
+      if (!current?.draft) {
+        setSavedDraft(null);
+        setError('That saved draft is not in this browser any more.');
+        return;
+      }
+      await loadProfileByIdentifier(current.draft.profileIdentifier, current.draft, current.sessionId);
+    } catch (caught) {
+      setProjectStatus('Project restore failed');
+      setError(caught instanceof Error ? caught.message : 'Could not read the saved project.');
+    }
+  }
+
   function createProjectDraft(document: Document, forStorage = true): ProjectDraft {
     if (!profile) throw new Error('Load a profile before exporting a project.');
     const html = serializeShowcaseArea(document);
@@ -942,7 +1000,8 @@ export default function App() {
       version: 1,
       profileIdentifier: profile.url,
       showcaseAreaHtml: forStorage ? dehydrateArtworkUrls(html).html : html,
-      removedShowcases,
+      // Removed originals can be restored from the trash after a reload, so their artwork is saved too.
+      removedShowcases: forStorage ? removedShowcases.map((showcase) => ({ ...showcase, html: dehydrateArtworkUrls(showcase.html).html })) : removedShowcases,
       settings: { avatarEdit, avatarFrame, background, backgroundSize, profileTheme, previewLevel },
     };
   }
@@ -1041,6 +1100,30 @@ export default function App() {
   }, []);
 
   useEffect(() => {
+    artworkRoots.current = { document: showcaseDocument, removed: removedShowcases };
+  }, [showcaseDocument, removedShowcases]);
+
+  // Placed artwork that neither the preview, the trash nor a draft waiting to be restored refers to any
+  // more is released from memory (utils/artworkAssets.ts).
+  useEffect(() => {
+    setArtworkRoots(() => {
+      const { document, removed } = artworkRoots.current;
+      const pending = pendingDraft.current;
+      return [
+        document?.body?.innerHTML || '',
+        ...removed.map((showcase) => showcase.html),
+        pending?.showcaseAreaHtml || '',
+        ...(pending?.removedShowcases || []).map((showcase) => showcase.html),
+      ];
+    });
+    const interval = globalThis.setInterval(sweepArtwork, 15_000);
+    return () => {
+      globalThis.clearInterval(interval);
+      setArtworkRoots(null);
+    };
+  }, []);
+
+  useEffect(() => {
     if (!profile || !previewLoaded || !showcaseDocument) return;
     let timer: ReturnType<typeof globalThis.setTimeout>;
     // Diagnostics: why each save was scheduled, collected until the debounced save runs.
@@ -1079,9 +1162,10 @@ export default function App() {
             if (autosaveDebug) console.log(`[autosave] IndexedDB write ${(performance.now() - writeStart).toFixed(1)} ms`);
             setSavedDraft({ sessionId, draft });
             setProjectStatus('Draft saved locally');
-          }).catch(() => {
+            scheduleArtworkSweep();
+          }).catch((caught: unknown) => {
             if (lastSavedKeyRef.current === key) lastSavedKeyRef.current = null;
-            setProjectStatus('Autosave failed');
+            setProjectStatus(caught instanceof Error && caught.message.startsWith('Autosave') ? caught.message : 'Autosave failed');
           });
         } catch {
           setProjectStatus('Autosave failed');
@@ -1259,7 +1343,7 @@ export default function App() {
             </form>
             <HandoffNotice state={handoff} hasProfile={false} />
             <div className="entry-actions">
-              {savedDraft && !restoringSession && <button className="entry-resume" type="button" onClick={() => void loadProfileByIdentifier(savedDraft.draft.profileIdentifier, savedDraft.draft, savedDraft.sessionId)} disabled={loading}><PanelsTopLeft size={15} /> Resume saved draft</button>}
+              {savedDraft && !restoringSession && <button className="entry-resume" type="button" onClick={() => void resumeSavedDraft(savedDraft)} disabled={loading}><PanelsTopLeft size={15} /> Resume saved draft</button>}
               {(loading || restoringSession) && <span className="entry-loading"><LoaderCircle className="spin" size={13} /> {restoringSession || pendingDraft.current ? 'Restoring your session' : 'Fetching profile'}</span>}
             </div>
             {recentProfiles.length > 0 && (
