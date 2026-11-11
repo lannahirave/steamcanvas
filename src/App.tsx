@@ -21,7 +21,7 @@ import {
   type IncomingArtwork,
 } from './utils/artworkStudioLibrary';
 import { DEMO_ARTWORK_URL, DemoArtworkError, isDemoId, loadDemoArtwork } from './utils/demoArtwork';
-import { dehydrateArtworkUrls, getArtworkBlob, hydrateArtworkUrls, listArtworkAssetIds, scheduleArtworkSweep, setArtworkRoots, sweepArtwork } from './utils/artworkAssets';
+import { dehydrateArtworkUrls, getArtworkBlob, hydrateArtworkUrls, listArtworkAssetIds, scheduleArtworkSweep, setArtworkBusy, setArtworkRoots, sweepArtwork } from './utils/artworkAssets';
 
 const forkRepositoryUrl = 'https://github.com/lannahirave/steamcanvas';
 const upstreamRepositoryUrl = 'https://github.com/dumbapplee/steamcanvas';
@@ -639,6 +639,8 @@ export default function App() {
   const [recentProfiles, setRecentProfiles] = useState<RecentProfile[]>(readRecentProfiles);
   const exportAssetsRef = useRef<(() => Promise<void>) | null>(null);
   const pendingDraft = useRef<ProjectDraft | null>(null);
+  // Set the moment a load starts, unlike the `loading` state, so a second load cannot slip in while the first awaits.
+  const loadGuard = useRef(false);
   // Read by the artwork sweep, which runs outside React's render cycle.
   const artworkRoots = useRef<{ document: Document | null; removed: RemovedShowcase[] }>({ document: null, removed: [] });
   const identifierRef = useRef('');
@@ -886,19 +888,48 @@ export default function App() {
     page.classList.toggle('full_width_background', backgroundIsAnimated || backgroundSize === 'full');
   }, [background, backgroundIsAnimated, backgroundSize, previewLoaded, profile]);
 
+  function beginLoad() {
+    if (loadGuard.current) return false;
+    loadGuard.current = true;
+    setLoading(true);
+    return true;
+  }
+
+  function endLoad() {
+    loadGuard.current = false;
+    setLoading(false);
+  }
+
+  /**
+   * The draft waiting for the preview to load. Until then its artwork is referenced nowhere else (while it is
+   * restored from storage, not even by this draft), so the artwork sweep is held off while one is pending.
+   */
+  function setPendingDraft(draft: ProjectDraft | null) {
+    pendingDraft.current = draft;
+    setArtworkBusy('pending-draft', !!draft);
+  }
+
   /** Loads a profile. With a draft it restores that session; without one it starts a new session. */
   async function loadProfileByIdentifier(rawIdentifier: string, draft: ProjectDraft | null = null, sessionId: string | null = null) {
     const nextIdentifier = rawIdentifier.trim();
-    if (!nextIdentifier || loading) return;
+    if (!nextIdentifier || !beginLoad()) return;
+    try {
+      await runProfileLoad(nextIdentifier, draft, sessionId);
+    } finally {
+      endLoad();
+    }
+  }
+
+  /** The body of loadProfileByIdentifier. The caller holds the load guard. */
+  async function runProfileLoad(nextIdentifier: string, draft: ProjectDraft | null, sessionId: string | null) {
     const nextSessionId = sessionId || createSessionId();
     sessionIdRef.current = null;
 
     identifierRef.current = nextIdentifier;
     setIdentifier(nextIdentifier);
-    setLoading(true);
     setError('');
     setProjectStatus(draft ? 'Restoring project' : 'Autosave ready');
-    pendingDraft.current = draft;
+    setPendingDraft(draft);
     setProfile(null);
     setPreviewLoaded(false);
     setShowcaseDocument(null);
@@ -931,7 +962,7 @@ export default function App() {
       if (!response.ok) throw new Error(result.error || 'Could not load this profile.');
       if (hydrating) {
         const restored = await hydrating;
-        pendingDraft.current = restored;
+        setPendingDraft(restored);
         setRemovedShowcases(restored.removedShowcases || []);
       }
       const loadedProfile = result as ProfilePreview;
@@ -946,11 +977,9 @@ export default function App() {
         return next;
       });
     } catch (caught) {
-      pendingDraft.current = null;
+      setPendingDraft(null);
       if (draft) setProjectStatus('Project restore failed');
       setError(caught instanceof Error ? caught.message : 'Something went wrong while loading the profile.');
-    } finally {
-      setLoading(false);
     }
   }
 
@@ -971,10 +1000,9 @@ export default function App() {
     await loadProfileByIdentifier(identifier);
   }
 
-  /** forStorage: artwork blob URLs become asset tokens; leave it off to rebuild the preview in this tab. */
   /** Reads the saved session again rather than the copy cached at startup: another tab may have saved since. */
   async function resumeSavedDraft(cached: SavedSession) {
-    if (loading) return;
+    if (!beginLoad()) return;
     setError('');
     try {
       const current = cached.sessionId
@@ -985,13 +1013,17 @@ export default function App() {
         setError('That saved draft is not in this browser any more.');
         return;
       }
-      await loadProfileByIdentifier(current.draft.profileIdentifier, current.draft, current.sessionId);
+      const nextIdentifier = current.draft.profileIdentifier.trim();
+      if (nextIdentifier) await runProfileLoad(nextIdentifier, current.draft, current.sessionId);
     } catch (caught) {
       setProjectStatus('Project restore failed');
       setError(caught instanceof Error ? caught.message : 'Could not read the saved project.');
+    } finally {
+      endLoad();
     }
   }
 
+  /** forStorage: artwork blob URLs become asset tokens; leave it off to rebuild the preview in this tab. */
   function createProjectDraft(document: Document, forStorage = true): ProjectDraft {
     if (!profile) throw new Error('Load a profile before exporting a project.');
     const html = serializeShowcaseArea(document);
@@ -1019,7 +1051,7 @@ export default function App() {
 
   /** Rebuilds the preview iframe from the current edits, for when it stops matching them. Nothing is discarded. */
   function reloadProfilePreview() {
-    if (!profile || !previewLoaded || loading || !showcaseDocument) return;
+    if (!profile || !previewLoaded || loadGuard.current || !showcaseDocument) return;
     let draft: ProjectDraft;
     try {
       draft = createProjectDraft(showcaseDocument, false);
@@ -1028,7 +1060,7 @@ export default function App() {
       return;
     }
     // onLoad restores the showcases from this draft; the appearance effects reapply once previewLoaded is true again.
-    pendingDraft.current = draft;
+    setPendingDraft(draft);
     setPreviewLoaded(false);
     setShowcaseDocument(null);
     setSourceBackgroundImage('');
@@ -1042,11 +1074,11 @@ export default function App() {
   }
 
   function resetProfilePreview() {
-    if (!profile || !previewLoaded || loading) return;
+    if (!profile || !previewLoaded || loadGuard.current) return;
     const confirmed = globalThis.confirm('Reset this preview to the loaded Steam profile? All showcase edits and appearance changes will be discarded.');
     if (!confirmed) return;
 
-    pendingDraft.current = null;
+    setPendingDraft(null);
     setPreviewLoaded(false);
     setShowcaseDocument(null);
     setAvatarEdit(DEFAULT_AVATAR_EDIT);
@@ -1243,7 +1275,7 @@ export default function App() {
     const restoredDraft = pendingDraft.current;
     if (document && restoredDraft) {
       restoreShowcaseArea(document, restoredDraft.showcaseAreaHtml);
-      pendingDraft.current = null;
+      setPendingDraft(null);
     }
     if (document && !document.querySelector('#steamcanvas-hide-video-controls')) {
       const style = document.createElement('style');
