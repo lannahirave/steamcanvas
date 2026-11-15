@@ -7,6 +7,7 @@
 import { load } from 'cheerio/slim';
 import { catalogCacheTtlMs, getCachedCatalog, profileCacheTtlMs, refreshCatalog } from './cache';
 import { loadMarketBackgrounds, marketCacheKey } from './market';
+import { defaultDemoOrigin, defaultStudioOrigin, siteHeaders, type SiteHeaderOptions } from './securityHeaders';
 import {
   extractFullScreenshotUrl,
   extractPublicScreenshots,
@@ -563,31 +564,12 @@ async function handleGuide(request: Request, url: URL, env: Env): Promise<Respon
   return new Response(html, { status: 200, headers: { 'Content-Type': 'text/html; charset=utf-8' } });
 }
 
-// The profile preview iframe uses srcdoc, so it inherits this policy. Steam's own CSS, fonts,
-// images and background videos must therefore be allowed, and base-uri must allow the
-// <base href="https://steamcommunity.com/"> the server adds to the preview.
-function contentSecurityPolicy(env: Env): string {
-  const steamAssets = 'https://*.steamstatic.com https://steamcommunity.com https://*.steamusercontent.com https://*.akamaihd.net';
-  const studioOrigin = studioOriginOf(env);
-  const demoOrigin = env.DEMO_ARTWORK_ORIGIN || 'https://demoartwork.lannahirave.com';
-  return [
-    "default-src 'self'",
-    "script-src 'self'",
-    `style-src 'self' 'unsafe-inline' ${steamAssets} https://fonts.googleapis.com`,
-    `img-src 'self' data: blob: ${steamAssets}`,
-    `media-src 'self' data: blob: ${steamAssets}`,
-    `font-src 'self' data: ${steamAssets} https://fonts.gstatic.com`,
-    `connect-src 'self' data: blob: ${steamAssets} ${demoOrigin}`,
-    `frame-src ${studioOrigin}`,
-    "object-src 'none'",
-    "base-uri 'self' https://steamcommunity.com",
-    "form-action 'self'",
-    "frame-ancestors 'none'",
-  ].join('; ');
-}
-
-function studioOriginOf(env: Env): string {
-  return env.ARTWORK_STUDIO_ORIGIN || 'https://artworkstudio.lannahirave.com';
+function siteHeaderOptionsOf(env: Env): SiteHeaderOptions {
+  return {
+    studioOrigin: env.ARTWORK_STUDIO_ORIGIN || defaultStudioOrigin,
+    demoOrigin: env.DEMO_ARTWORK_ORIGIN || defaultDemoOrigin,
+    noindex: env.ROBOTS_NOINDEX === 'true',
+  };
 }
 
 function isBridgePath(pathname: string): boolean {
@@ -604,7 +586,7 @@ function bridgeHeaders(headers: Headers, env: Env): void {
     "connect-src 'self'",
     "base-uri 'none'",
     "form-action 'none'",
-    `frame-ancestors ${studioOriginOf(env)}`,
+    `frame-ancestors ${siteHeaderOptionsOf(env).studioOrigin}`,
   ].join('; '));
   headers.set('Cross-Origin-Embedder-Policy', 'require-corp');
   headers.set('Cross-Origin-Resource-Policy', 'same-site');
@@ -613,17 +595,18 @@ function bridgeHeaders(headers: Headers, env: Env): void {
   headers.delete('X-Frame-Options');
 }
 
+// Static assets mostly skip the Worker (run_worker_first in wrangler.jsonc) and get the same
+// headers from dist/_headers, generated from worker/securityHeaders.ts.
 function withSecurityHeaders(response: Response, env: Env, pathname: string): Response {
   const headers = new Headers(response.headers);
-  headers.set('X-Content-Type-Options', 'nosniff');
+  const options = siteHeaderOptionsOf(env);
   if (isBridgePath(pathname)) {
+    headers.set('X-Content-Type-Options', 'nosniff');
     bridgeHeaders(headers, env);
+    if (options.noindex) headers.set('X-Robots-Tag', 'noindex, nofollow');
   } else {
-    headers.set('Content-Security-Policy', contentSecurityPolicy(env));
-    headers.set('X-Frame-Options', 'DENY');
-    headers.set('Referrer-Policy', 'strict-origin-when-cross-origin');
+    for (const [name, value] of Object.entries(siteHeaders(options))) headers.set(name, value);
   }
-  if (env.ROBOTS_NOINDEX === 'true') headers.set('X-Robots-Tag', 'noindex, nofollow');
   return new Response(response.body, { status: response.status, statusText: response.statusText, headers });
 }
 

@@ -6,8 +6,9 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 
 import { fileURLToPath } from 'node:url';
-import { defineConfig, type Plugin } from 'vite';
+import { defineConfig, loadEnv, type Plugin } from 'vite';
 import react from '@vitejs/plugin-react';
+import { defaultDemoOrigin, defaultStudioOrigin, staticHeadersFile } from './worker/securityHeaders';
 
 // `npm run dev` proxies /api to the Worker (wrangler dev, port 8790); `npm run dev:node` uses the
 // original Express server on 8787.
@@ -26,8 +27,30 @@ const bridgeDevHeaders: Plugin = {
   },
 };
 
+// Writes dist/_headers, so static assets served without the Worker get the same security headers
+// it would add. The origins come from the same .env files the client reads (.env.beta for beta,
+// the defaults for production) and must match the vars in wrangler.jsonc.
+function staticHeaders(mode: string): Plugin {
+  return {
+    name: 'static-headers',
+    apply: 'build',
+    generateBundle() {
+      const env = loadEnv(mode, process.cwd(), 'VITE_');
+      this.emitFile({
+        type: 'asset',
+        fileName: '_headers',
+        source: staticHeadersFile({
+          studioOrigin: env.VITE_ARTWORK_STUDIO_ORIGIN || defaultStudioOrigin,
+          demoOrigin: env.VITE_DEMO_ARTWORK_ORIGIN || defaultDemoOrigin,
+          noindex: mode === 'beta',
+        }),
+      });
+    },
+  };
+}
+
 export default defineConfig(({ mode }) => ({
-  plugins: [react(), bridgeDevHeaders],
+  plugins: [react(), bridgeDevHeaders, staticHeaders(mode)],
   define: {
     // Each deploy is built from the tip of its branch (scripts/deploy.mjs checks), so the branch is its source.
     __SOURCE_REF__: JSON.stringify(mode === 'beta' ? 'beta' : 'main'),

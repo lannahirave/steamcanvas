@@ -9,8 +9,10 @@
     "directory": "./dist",
     "binding": "ASSETS",
     "not_found_handling": "single-page-application",
-    // The Worker adds the security headers to every response, so it runs before static assets.
-    "run_worker_first": true
+    // Only these paths run the Worker. Other static assets are served directly, which does not count
+    // toward the Workers request quota; their security headers come from dist/_headers, which
+    // vite.config.ts generates from worker/securityHeaders.ts.
+    "run_worker_first": ["/api", "/api/*", "/guides/*", "/bridge", "/bridge/*", "/robots.txt"]
   },
   "routes": [
     { "pattern": "previewartwork.lannahirave.com", "custom_domain": true }
