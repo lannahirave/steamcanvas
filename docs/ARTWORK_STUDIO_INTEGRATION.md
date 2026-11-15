@@ -33,6 +33,18 @@ the Studio, as a Worker (`worker/`):
   - `npm run seed:market -- [--env beta] [--pages 10] [--query "anime"]` fetches pages from your own
     connection (which Steam usually allows) and uploads them to the remote KV
     (`scripts/seed-market-kv.ts`, which reuses `worker/market.ts`).
+- **Cached background search.** The Market picker searches a cached catalog by default, without
+  asking Steam; a "Live Steam search" checkbox switches back to asking Steam (remembered per
+  browser). The catalog is one gzipped JSON value in KV (`worker/marketIndex.ts`), served as-is by
+  `GET /api/market-index` and searched in the browser (`src/utils/marketIndex.ts`): every word must
+  appear in the name or game. It is maintained from a home connection by `scripts/market-index.ts`,
+  and each run writes KV once:
+  - `npm run market-index -- build [--env beta] [--source prod]` builds it from the Market pages
+    already seeded in KV, plus one request for Steam's Market game list
+    (`/market/appfilters/753`, every game with its item count);
+  - `npm run market-index -- update [--env beta] [--max-requests 300] [--game <appid>]` compares
+    a fresh game list with the counts stored in the index and fetches only new or changed games,
+    one request each (`category_753_Game[]=tag_app_<id>`). Run it weekly.
   Only public catalogs belong in KV; profile and screenshot data stay in the per-location cache.
 - Steam retries are shorter than upstream (fewer attempts, shorter backoff) to fit Worker time limits.
 - **Request headers differ from upstream.** From `wrangler dev` (October 2026), Steam answered the same

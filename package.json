@@ -23,6 +23,7 @@
     "release:beta": "node scripts/deploy.mjs beta",
     "release:prod": "node scripts/deploy.mjs prod",
     "seed:market": "tsx scripts/seed-market-kv.ts",
+    "market-index": "tsx scripts/market-index.ts",
     "lint": "oxlint"
   },
   "dependencies": {

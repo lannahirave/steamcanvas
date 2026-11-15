@@ -15,22 +15,15 @@
 // --batch pages, so a stopped run loses at most one batch; the log prints the --start-page to
 // resume from. Ctrl+C uploads what has been fetched, then stops.
 
-import { spawnSync } from 'node:child_process';
-import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
-import { tmpdir } from 'node:os';
-import { join } from 'node:path';
 import { catalogCacheTtlMs } from '../worker/cache';
 import { loadMarketBackgrounds, marketCacheKey } from '../worker/market';
+import { errorText, parseEnv, withRetries, withTempFile, wranglerKv, type KvEnv } from './lib';
 
 // Must match the picker (src/components/BackgroundPicker.tsx) and the Worker's KV prefix and
 // retention (worker/cache.ts), or the Worker will not find these entries.
 const pageSize = 30;
 const kvPrefix = 'catalog:';
 const kvKeepSeconds = 30 * 24 * 60 * 60;
-// Waits before each retry of a failed page; after the last one, the run stops. Steam's Market
-// limit can last several minutes, so the short waits are followed by longer ones.
-const retryDelaysMs = [15_000, 30_000, 60_000, 300_000, 300_000, 300_000];
-
 type Entry = { key: string; value: string; expiration_ttl: number };
 type Payload = Awaited<ReturnType<typeof loadMarketBackgrounds>>;
 
@@ -54,7 +47,7 @@ function parseArgs(argv: string[]) {
     else if (arg === '--dry-run') options.dryRun = true;
     else throw new Error(`Unknown option: ${arg}`);
   }
-  if (options.env !== 'prod' && options.env !== 'beta') throw new Error('--env must be prod or beta.');
+  parseEnv(options.env);
   if (options.pages !== Infinity && (!Number.isInteger(options.pages) || options.pages < 1)) throw new Error('--pages must be a positive integer or "all".');
   if (!Number.isInteger(options.startPage) || options.startPage < 1) throw new Error('--start-page must be 1 or more.');
   if (!Number.isFinite(options.delayMs) || options.delayMs < 0) throw new Error('--delay must be a number of milliseconds.');
@@ -65,7 +58,6 @@ function parseArgs(argv: string[]) {
 }
 
 const sleep = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms));
-const errorText = (error: unknown) => error instanceof Error ? error.message : String(error);
 
 let stopRequested = false;
 process.on('SIGINT', () => {
@@ -75,41 +67,15 @@ process.on('SIGINT', () => {
 });
 
 function upload(entries: Entry[], env: string): boolean {
-  const dir = mkdtempSync(join(tmpdir(), 'steamcanvas-seed-'));
-  const file = join(dir, 'entries.json');
-  try {
-    writeFileSync(file, JSON.stringify(entries));
-    const args = ['wrangler', 'kv', 'bulk', 'put', file, '--binding', 'CATALOG_KV', '--remote', ...(env === 'beta' ? ['--env', 'beta'] : [])];
-    // npx is a .cmd file on Windows, which needs a shell; pass one quoted command line to it.
-    const command = ['npx', ...args].map((arg) => /^[\w:./\\-]+$/.test(arg) ? arg : `"${arg}"`).join(' ');
-    const result = spawnSync(command, { stdio: ['ignore', 'pipe', 'pipe'], encoding: 'utf8', shell: true });
-    if (result.status !== 0) {
-      console.error(`Upload failed:\n${result.stdout ?? ''}${result.stderr ?? ''}`);
-      return false;
-    }
-    return true;
-  } finally {
-    rmSync(dir, { recursive: true, force: true });
-  }
+  const result = withTempFile('entries.json', JSON.stringify(entries), (file) => wranglerKv(env as KvEnv, ['bulk', 'put', file]));
+  if (!result.ok) console.error(`Upload failed:
+${result.output}`);
+  return result.ok;
 }
 
-/** Loads one page, waiting as in retryDelaysMs between attempts. Returns null if all fail. */
-async function loadPageWithRetries(query: string, start: number, label: string): Promise<Payload | null> {
-  for (let attempt = 0; ; attempt++) {
-    try {
-      // Retries are done here, at page level, so the waits are exactly the ones above.
-      return await loadMarketBackgrounds(query, start, pageSize, { maxAttempts: 1 });
-    } catch (error) {
-      const delayMs = retryDelaysMs[attempt];
-      if (delayMs === undefined || stopRequested) {
-        console.error(`${label}: failed (${errorText(error)}).`);
-        return null;
-      }
-      const wait = delayMs >= 60_000 ? `${delayMs / 60_000} min` : `${delayMs / 1000} s`;
-      console.warn(`${label}: failed (${errorText(error)}); retrying in ${wait} (attempt ${attempt + 2}/${retryDelaysMs.length + 1}).`);
-      await sleep(delayMs);
-    }
-  }
+function loadPageWithRetries(query: string, start: number, label: string): Promise<Payload | null> {
+  // Retries are done here, at page level, so the waits are exactly the ones in scripts/lib.ts.
+  return withRetries(label, () => loadMarketBackgrounds(query, start, pageSize, { maxAttempts: 1 }), () => stopRequested);
 }
 
 async function seedQuery(query: string, options: ReturnType<typeof parseArgs>): Promise<boolean> {

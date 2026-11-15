@@ -7,6 +7,7 @@
 import { load } from 'cheerio/slim';
 import { catalogCacheTtlMs, getCachedCatalog, profileCacheTtlMs, refreshCatalog } from './cache';
 import { loadMarketBackgrounds, marketCacheKey } from './market';
+import { marketIndexKey } from './marketIndex';
 import { defaultDemoOrigin, defaultStudioOrigin, siteHeaders, type SiteHeaderOptions } from './securityHeaders';
 import {
   extractFullScreenshotUrl,
@@ -102,6 +103,23 @@ async function readJsonBody(request: Request): Promise<Record<string, unknown> |
 
 function isValidCursor(cursor: string): boolean {
   return !cursor || (cursor.length <= 128 && /^[A-Za-z0-9+/]+={0,2}$/.test(cursor));
+}
+
+// The cached Market catalog (worker/marketIndex.ts), stored gzipped and streamed without parsing,
+// so serving it costs almost no CPU. Browsers and Cloudflare's edge may keep it for an hour.
+async function handleMarketIndex(env: Env): Promise<Response> {
+  if (!env.CATALOG_KV) return json({ error: 'The cached catalog is not available in this deployment.' }, 503);
+  const body = await env.CATALOG_KV.get(marketIndexKey, 'stream');
+  if (!body) return json({ error: 'The cached catalog has not been built yet. Turn on live Steam search.' }, 404);
+  return new Response(body, {
+    headers: {
+      'Content-Type': 'application/json; charset=utf-8',
+      'Content-Encoding': 'gzip',
+      'Cache-Control': 'public, max-age=3600',
+      'X-Encoded-By-Worker': '1',
+    },
+    encodeBody: 'manual',
+  });
 }
 
 async function handleBackgrounds(url: URL, env: Env, waitUntil: WaitUntil): Promise<Response> {
@@ -511,6 +529,8 @@ async function handleApi(request: Request, url: URL, env: Env, waitUntil: WaitUn
       return json({ error: 'Profile metrics are not available in this deployment.' }, 503);
     case 'GET /api/profile-background-image':
       return handleProfileBackgroundImage(url);
+    case 'GET /api/market-index':
+      return handleMarketIndex(env);
     case 'GET /api/backgrounds':
       return handleBackgrounds(url, env, waitUntil);
     case 'GET /api/points-backgrounds':
@@ -607,7 +627,10 @@ function withSecurityHeaders(response: Response, env: Env, pathname: string): Re
   } else {
     for (const [name, value] of Object.entries(siteHeaders(options))) headers.set(name, value);
   }
-  return new Response(response.body, { status: response.status, statusText: response.statusText, headers });
+  // A body the Worker already compressed (the market index) must not be encoded a second time.
+  const encodeBody = response.headers.get('Content-Encoding') && response.headers.get('X-Encoded-By-Worker') ? 'manual' : 'automatic';
+  headers.delete('X-Encoded-By-Worker');
+  return new Response(response.body, { status: response.status, statusText: response.statusText, headers, encodeBody });
 }
 
 export default {

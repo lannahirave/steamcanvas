@@ -4,6 +4,7 @@
 import { useEffect, useRef, useState, type FormEvent } from 'react';
 import { ChevronLeft, ChevronRight, ExternalLink, ImagePlus, LoaderCircle, RotateCcw, Search, Sparkles, Store, X } from 'lucide-react';
 import { fetchWithRetry } from '../utils/fetchWithRetry';
+import { loadMarketIndex, searchMarketIndex } from '../utils/marketIndex';
 
 export type SteamBackground = {
 	id: string;
@@ -29,6 +30,18 @@ type BackgroundResponse = {
 
 export type ProfileBackgroundSize = 'full' | 'original';
 
+// Market search defaults to the cached catalog, which never waits on Steam; live search asks Steam
+// through the Worker and can fail while Steam is rate-limiting. The choice is remembered.
+const liveSearchStorageKey = 'steamcanvas:live-market-search';
+
+function readLiveSearchPreference(): boolean {
+	try {
+		return localStorage.getItem(liveSearchStorageKey) === 'true';
+	} catch {
+		return false;
+	}
+}
+
 type BackgroundPickerProps = {
 	sourceBackgroundImage: string;
 	value: SteamBackground | null;
@@ -50,6 +63,8 @@ export default function BackgroundPicker({ sourceBackgroundImage, value, onChang
 	const [error, setError] = useState('');
 	const [expanded, setExpanded] = useState(false);
 	const [pointShopIndexed, setPointShopIndexed] = useState(false);
+	const [liveSearch, setLiveSearch] = useState(readLiveSearchPreference);
+	const [catalogUpdatedAt, setCatalogUpdatedAt] = useState<number | null>(null);
 	const dialogRef = useRef<HTMLDialogElement>(null);
 	const pointShopCursors = useRef<Array<string | null>>([null]);
 	const pointShopIndexedRef = useRef(false);
@@ -68,6 +83,31 @@ export default function BackgroundPicker({ sourceBackgroundImage, value, onChang
 
 		const controller = new AbortController();
 		const requestId = ++requestSequence.current;
+		const isCurrent = () => !controller.signal.aborted && requestSequence.current === requestId;
+
+		if (source === 'market' && !liveSearch) {
+			setLoading(true);
+			setError('');
+			loadMarketIndex()
+				.then((index) => {
+					if (!isCurrent()) return;
+					const result = searchMarketIndex(index, submittedQuery, page * pageSize, pageSize);
+					setItems(result.items);
+					setTotalCount(result.totalCount);
+					setCatalogUpdatedAt(index.updatedAt);
+				})
+				.catch((caught: unknown) => {
+					if (!isCurrent()) return;
+					setError(caught instanceof Error ? caught.message : 'The cached catalog could not be loaded.');
+					setItems([]);
+					setTotalCount(0);
+				})
+				.finally(() => {
+					if (!controller.signal.aborted) setLoading(false);
+				});
+			return () => controller.abort();
+		}
+
 		let url: string;
 		if (source === 'market') {
 			url = `/api/backgrounds?${new URLSearchParams({ query: submittedQuery, start: String(page * pageSize), count: String(pageSize) })}`;
@@ -116,7 +156,7 @@ export default function BackgroundPicker({ sourceBackgroundImage, value, onChang
 			});
 
 		return () => controller.abort();
-	}, [expanded, page, source, submittedQuery]);
+	}, [expanded, liveSearch, page, source, submittedQuery]);
 
 	function changeSource(nextSource: 'market' | 'points') {
 		setSource(nextSource);
@@ -128,6 +168,18 @@ export default function BackgroundPicker({ sourceBackgroundImage, value, onChang
 		pointShopIndexedRef.current = false;
 		setPointShopIndexed(false);
 		pointShopCursors.current = [null];
+	}
+
+	function changeLiveSearch(nextLiveSearch: boolean) {
+		setLiveSearch(nextLiveSearch);
+		setPage(0);
+		setItems([]);
+		setTotalCount(0);
+		try {
+			localStorage.setItem(liveSearchStorageKey, String(nextLiveSearch));
+		} catch {
+			// Private browsing can block storage; the choice then lasts until the page is closed.
+		}
 	}
 
 	function searchBackgrounds(event: FormEvent<HTMLFormElement>) {
@@ -224,6 +276,13 @@ export default function BackgroundPicker({ sourceBackgroundImage, value, onChang
 						</button>
 					</div>
 
+					{source === 'market' && (
+						<label className="background-live-toggle" title="Off: search the cached catalog, without asking Steam. On: ask Steam directly, which can fail while Steam is limiting requests.">
+							<input type="checkbox" checked={liveSearch} onChange={(event) => changeLiveSearch(event.target.checked)} />
+							<span>Live Steam search</span>
+						</label>
+					)}
+
 					<form className="background-search is-large" onSubmit={searchBackgrounds}>
 						<Search size={17} aria-hidden="true" />
 						<input
@@ -237,7 +296,14 @@ export default function BackgroundPicker({ sourceBackgroundImage, value, onChang
 						<button type="submit" aria-label="Search backgrounds"><Search size={17} /></button>
 					</form>
 
-					{error && <p className="background-error" role="alert">{error}</p>}
+					{error && (
+						<p className="background-error" role="alert">
+							{error}
+							{source === 'market' && liveSearch && (
+								<> <button className="background-error-action" type="button" onClick={() => changeLiveSearch(false)}>Search the cached catalog instead</button></>
+							)}
+						</p>
+					)}
 					<div className="background-results is-expanded" aria-busy={loading}>
 						{visibleItems.map((item) => (
 							<button
@@ -254,12 +320,17 @@ export default function BackgroundPicker({ sourceBackgroundImage, value, onChang
 								{item.price && <span className="background-option-price">{item.price}</span>}
 							</button>
 						))}
-						{loading && <div className="background-loading"><span><LoaderCircle className="spin" size={24} />{source === 'market' ? ' Waiting for Steam...' : retryAttempt > 0 && ` Retrying (${retryAttempt}/3)`}</span></div>}
+						{loading && <div className="background-loading"><span><LoaderCircle className="spin" size={24} />{source === 'market' ? (liveSearch ? ' Waiting for Steam...' : ' Loading cached catalog...') : retryAttempt > 0 && ` Retrying (${retryAttempt}/3)`}</span></div>}
 						{!loading && !error && visibleItems.length === 0 && <p className="background-empty">No matching backgrounds.</p>}
 					</div>
 
 					<div className="background-picker-footer is-large">
-						<span>{totalCount.toLocaleString()} items</span>
+						<span>
+							{totalCount.toLocaleString()} items
+							{source === 'market' && !liveSearch && catalogUpdatedAt && (
+								<> · cached {new Date(catalogUpdatedAt).toLocaleDateString()}, prices may differ</>
+							)}
+						</span>
 						<div className="background-pagination">
 							<button type="button" aria-label="Previous backgrounds" disabled={page === 0 || loading} onClick={() => setPage((current) => current - 1)}>
 								<ChevronLeft size={18} />

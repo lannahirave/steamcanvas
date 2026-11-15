@@ -377,6 +377,9 @@ a { color: inherit; }
 .background-source-tabs button { min-height: 34px; display: inline-flex; align-items: center; justify-content: center; gap: 7px; padding: 0 13px; border: 0; background: transparent; color: #65706a; font-size: 11px; cursor: pointer; }
 .background-source-tabs button:hover:not(.is-active) { color: var(--ink); background: rgb(255 255 255 / 65%); }
 .background-source-tabs button.is-active { background: #1c2425; color: #f7f8f3; }
+.background-live-toggle { display: inline-flex; align-self: flex-start; align-items: center; gap: 8px; margin-top: 12px; color: #65706a; font-size: 11px; cursor: pointer; }
+.background-live-toggle input { width: 14px; height: 14px; margin: 0; accent-color: #66c0f4; cursor: pointer; }
+.background-error-action { padding: 0; border: 0; background: none; color: inherit; font: inherit; text-decoration: underline; cursor: pointer; }
 .background-search.is-large { height: 44px; flex: 0 0 auto; gap: 11px; margin-top: 19px; padding-left: 13px; }
 .background-search.is-large input { font-size: 13px; }
 .background-search.is-large button { width: 32px; height: 32px; }
@@ -959,6 +962,7 @@ body { min-width: 360px; background: #0a1118; color: #e7edf3; }
 .background-source-tabs, .showcase-editor-layout-choice button, .showcase-public-picker.is-expanded { border-color: #324752; background: #15232d; color: #c0d0d8; }
 .background-source-tabs button.is-active { background: #66c0f4; color: #0a1822; }
 .background-source-tabs button:hover:not(.is-active) { background: #1c303c; color: #f3f8fa; }
+.background-live-toggle { color: #9fb2bc; }
 .background-search input, .showcase-public-search { border-color: #344c59; background: #0b141b; color: #e5edf1; }
 .background-loading { background: rgb(10 17 24 / 82%); color: #8dd0f7; }
 .background-empty, .background-picker-footer, .background-option-price, .showcase-public-picker-copy, .showcase-public-picker-status, .crop-instruction { color: #879aa5; }
