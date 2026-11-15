@@ -18,6 +18,13 @@
   "vars": {
     "ARTWORK_STUDIO_ORIGIN": "https://artworkstudio.lannahirave.com"
   },
+  // Shared catalog cache. Steam rate-limits Cloudflare's IPs on the Market, and the Cache API is
+  // per data center, so the last good Market pages are kept here for every location to serve.
+  "kv_namespaces": [
+    { "binding": "CATALOG_KV", "id": "ed06ae5e7e944f45b0a3e3da70896670" }
+  ],
+  // Hourly refresh of the default Market pages into CATALOG_KV (see scheduled() in worker/index.ts).
+  "triggers": { "crons": ["17 * * * *"] },
   // Serve only the custom domain, not a duplicate *.workers.dev copy.
   "workers_dev": false,
   "observability": { "enabled": true },
@@ -34,7 +41,11 @@
         "ARTWORK_STUDIO_ORIGIN": "https://artworkstudio-beta.lannahirave.com",
         "DEMO_ARTWORK_ORIGIN": "https://demoartwork-beta.lannahirave.com",
         "ROBOTS_NOINDEX": "true"
-      }
+      },
+      "kv_namespaces": [
+        { "binding": "CATALOG_KV", "id": "b3b2387dc63c4a328ed899a65089218b" }
+      ],
+      "triggers": { "crons": ["47 * * * *"] }
     }
   }
 }

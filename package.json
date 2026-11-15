@@ -22,6 +22,7 @@
     "start": "tsx server/index.ts",
     "release:beta": "node scripts/deploy.mjs beta",
     "release:prod": "node scripts/deploy.mjs prod",
+    "seed:market": "tsx scripts/seed-market-kv.ts",
     "lint": "oxlint"
   },
   "dependencies": {

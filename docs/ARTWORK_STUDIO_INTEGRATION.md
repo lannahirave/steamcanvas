@@ -21,6 +21,19 @@ the Studio, as a Worker (`worker/`):
 - The in-memory `Map` cache is replaced by the Cache API. Worker instances do not keep memory between
   requests, so a `Map` would not survive. A per-instance map still joins identical requests that run at
   the same time.
+- **Market pages are also kept in Workers KV** (`CATALOG_KV` in `wrangler.jsonc`). In production
+  (November 2026) Steam answered the Market with `429` from Cloudflare's IPs while the same request
+  from a home connection got `200`, and the Cache API is per data center, so most locations had no
+  stale copy to fall back on. Now:
+  - a Market request checks the local Cache API, then KV, and only then Steam;
+  - a stale entry is served at once and refreshed in the background (at most one try per key per
+    5 minutes in each instance after a failure);
+  - KV entries are kept for 30 days, so an old page is served rather than an error;
+  - a cron trigger refreshes the first 3 pages of the default search every hour, with longer retries;
+  - `npm run seed:market -- [--env beta] [--pages 10] [--query "anime"]` fetches pages from your own
+    connection (which Steam usually allows) and uploads them to the remote KV
+    (`scripts/seed-market-kv.ts`, which reuses `worker/market.ts`).
+  Only public catalogs belong in KV; profile and screenshot data stay in the per-location cache.
 - Steam retries are shorter than upstream (fewer attempts, shorter backoff) to fit Worker time limits.
 - **Request headers differ from upstream.** From `wrangler dev` (October 2026), Steam answered the same
   request differently than it did for the Node server:
