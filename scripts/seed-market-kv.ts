@@ -27,8 +27,9 @@ import { loadMarketBackgrounds, marketCacheKey } from '../worker/market';
 const pageSize = 30;
 const kvPrefix = 'catalog:';
 const kvKeepSeconds = 30 * 24 * 60 * 60;
-// Waits before each retry of a failed page; after the last one, the run stops.
-const retryDelaysMs = [15_000, 30_000, 60_000];
+// Waits before each retry of a failed page; after the last one, the run stops. Steam's Market
+// limit can last several minutes, so the short waits are followed by longer ones.
+const retryDelaysMs = [15_000, 30_000, 60_000, 300_000, 300_000, 300_000];
 
 type Entry = { key: string; value: string; expiration_ttl: number };
 type Payload = Awaited<ReturnType<typeof loadMarketBackgrounds>>;
@@ -92,7 +93,7 @@ function upload(entries: Entry[], env: string): boolean {
   }
 }
 
-/** Loads one page, waiting 15 s, 30 s, then 60 s between attempts. Returns null if all fail. */
+/** Loads one page, waiting as in retryDelaysMs between attempts. Returns null if all fail. */
 async function loadPageWithRetries(query: string, start: number, label: string): Promise<Payload | null> {
   for (let attempt = 0; ; attempt++) {
     try {
@@ -104,7 +105,8 @@ async function loadPageWithRetries(query: string, start: number, label: string):
         console.error(`${label}: failed (${errorText(error)}).`);
         return null;
       }
-      console.warn(`${label}: failed (${errorText(error)}); retrying in ${delayMs / 1000} s.`);
+      const wait = delayMs >= 60_000 ? `${delayMs / 60_000} min` : `${delayMs / 1000} s`;
+      console.warn(`${label}: failed (${errorText(error)}); retrying in ${wait} (attempt ${attempt + 2}/${retryDelaysMs.length + 1}).`);
       await sleep(delayMs);
     }
   }
