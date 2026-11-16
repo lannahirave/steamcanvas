@@ -25,8 +25,10 @@
   "kv_namespaces": [
     { "binding": "CATALOG_KV", "id": "ed06ae5e7e944f45b0a3e3da70896670" }
   ],
-  // Hourly refresh of the default Market pages into CATALOG_KV (see scheduled() in worker/index.ts).
-  "triggers": { "crons": ["17 * * * *"] },
+  // No cron triggers. An hourly Market refresh used to run here; the picker now searches the cached
+  // catalog (scripts/market-index.ts), so it only cost Steam requests and KV writes. An empty list
+  // makes `wrangler deploy` remove existing triggers, which leaving the key out would not.
+  "triggers": { "crons": [] },
   // Serve only the custom domain, not a duplicate *.workers.dev copy.
   "workers_dev": false,
   "observability": { "enabled": true },
@@ -47,7 +49,7 @@
       "kv_namespaces": [
         { "binding": "CATALOG_KV", "id": "b3b2387dc63c4a328ed899a65089218b" }
       ],
-      "triggers": { "crons": ["47 * * * *"] }
+      "triggers": { "crons": [] }
     }
   }
 }

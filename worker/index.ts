@@ -5,7 +5,7 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 
 import { load } from 'cheerio/slim';
-import { catalogCacheTtlMs, getCachedCatalog, profileCacheTtlMs, refreshCatalog } from './cache';
+import { catalogCacheTtlMs, getCachedCatalog, profileCacheTtlMs } from './cache';
 import { loadMarketBackgrounds, marketCacheKey } from './market';
 import { marketIndexKey } from './marketIndex';
 import { defaultDemoOrigin, defaultStudioOrigin, siteHeaders, type SiteHeaderOptions } from './securityHeaders';
@@ -25,7 +25,6 @@ import {
   makeRewardDefinitionsQuery,
   pointsShopUrl,
   SteamHttpError,
-  type SteamRetryOptions,
   steamErrorStatus,
   steamHost,
   steamImageHost,
@@ -141,27 +140,6 @@ async function handleBackgrounds(url: URL, env: Env, waitUntil: WaitUntil): Prom
       return json({ error: 'Steam is temporarily limiting Market requests. Please try again later.' }, 503);
     }
     return json({ error: 'Steam could not load profile backgrounds right now.' }, 502);
-  }
-}
-
-// Market pages the cron trigger keeps warm in CATALOG_KV: the first pages of the default (empty)
-// search, at the picker's page size (src/components/BackgroundPicker.tsx).
-const scheduledMarketPages = 3;
-const scheduledMarketPageSize = 30;
-// A cron run may take minutes, so it can wait longer on Steam than a visitor's request.
-const scheduledRetry: SteamRetryOptions = { maxAttempts: 4, baseDelayMs: 5000, maxBackoffMs: 30000, maxRetryAfterMs: 60000 };
-
-async function refreshMarketCatalog(env: Env): Promise<void> {
-  if (!env.CATALOG_KV) return;
-  for (let page = 0; page < scheduledMarketPages; page++) {
-    const start = page * scheduledMarketPageSize;
-    try {
-      await refreshCatalog(marketCacheKey('', start, scheduledMarketPageSize), () => loadMarketBackgrounds('', start, scheduledMarketPageSize, scheduledRetry), catalogCacheTtlMs, env.CATALOG_KV);
-    } catch (error) {
-      // Leave the rest for the next run rather than pushing on while Steam is refusing.
-      console.warn(`Market refresh stopped at start=${start}:`, error instanceof Error ? error.message : error);
-      return;
-    }
   }
 }
 
@@ -649,7 +627,4 @@ export default {
     return withSecurityHeaders(response, env, url.pathname);
   },
 
-  async scheduled(_controller: ScheduledController, env: Env, context: ExecutionContext): Promise<void> {
-    context.waitUntil(refreshMarketCatalog(env));
-  },
 } satisfies ExportedHandler<Env>;

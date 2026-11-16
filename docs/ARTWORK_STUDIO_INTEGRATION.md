@@ -29,7 +29,6 @@ the Studio, as a Worker (`worker/`):
   - a stale entry is served at once and refreshed in the background (at most one try per key per
     5 minutes in each instance after a failure);
   - KV entries are kept for 30 days, so an old page is served rather than an error;
-  - a cron trigger refreshes the first 3 pages of the default search every hour, with longer retries;
   - `npm run seed:market -- [--env beta] [--pages 10] [--query "anime"]` fetches pages from your own
     connection (which Steam usually allows) and uploads them to the remote KV
     (`scripts/seed-market-kv.ts`, which reuses `worker/market.ts`).

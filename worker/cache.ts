@@ -132,10 +132,3 @@ export async function getCachedCatalog<T>(key: string, loadCatalog: () => Promis
     throw error;
   }
 }
-
-/** Loads a catalog unconditionally and stores it, for scheduled refreshes. */
-export async function refreshCatalog<T>(key: string, loadCatalog: () => Promise<T>, ttlMs: number, kv: KVNamespace): Promise<void> {
-  const payload = await loadCatalog();
-  const entry = { expiresAt: Date.now() + ttlMs, payload };
-  await Promise.all([writeCache(key, entry), writeKv(kv, key, entry)]);
-}
